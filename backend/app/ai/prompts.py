@@ -34,13 +34,24 @@ ANALYSIS_SCHEMA = """{
 }"""
 
 
+def _fmt_float(val: Any, prec: int = 1) -> str:
+    """Safely format float values without throwing on strings or None."""
+    if val is None or val == "?":
+        return "?"
+    try:
+        return f"{float(val):.{prec}f}"
+    except (ValueError, TypeError):
+        return str(val)
+
+
 def build_analysis_prompt(
     incident: dict[str, Any],
     anomalies: list[dict[str, Any]],
     recent_metrics: list[dict[str, Any]],
     process_snapshots: list[dict[str, Any]],
     correlation_score: float,
-    rule_based_cause: str,
+    rule_based_cause: str = "",
+    **kwargs: Any,
 ) -> list[dict[str, str]]:
     """
     Build the complete prompt message list for the Groq analysis call.
@@ -51,23 +62,25 @@ def build_analysis_prompt(
     # Format anomalies
     anomaly_lines = []
     for a in anomalies[:10]:  # Limit to 10 most relevant
+        obs = _fmt_float(a.get("observed_value"))
+        thresh = _fmt_float(a.get("threshold"))
+        persistent = "(PERSISTENT)" if a.get("is_persistent") else ""
         anomaly_lines.append(
             f"  - {a.get('metric_name', 'unknown')}: "
-            f"observed {a.get('observed_value', '?'):.1f}, "
-            f"threshold {a.get('threshold', '?'):.1f} "
-            f"[{a.get('severity', '?')}] "
-            f"{'(PERSISTENT)' if a.get('is_persistent') else ''}"
+            f"observed {obs}, "
+            f"threshold {thresh} "
+            f"[{a.get('severity', '?')}] {persistent}".strip()
         )
 
     # Format recent metric trend
     metric_lines = []
     for m in recent_metrics[-5:]:  # Last 5 observations
+        cpu = _fmt_float(m.get("cpu_usage"))
+        mem = _fmt_float(m.get("memory_usage"))
+        disk = _fmt_float(m.get("disk_usage"))
+        load = _fmt_float(m.get("load_1m"), prec=2)
         metric_lines.append(
-            f"  {m.get('timestamp', '?')}: "
-            f"CPU={m.get('cpu_usage', '?'):.1f}% "
-            f"MEM={m.get('memory_usage', '?'):.1f}% "
-            f"DISK={m.get('disk_usage', '?'):.1f}% "
-            f"LOAD={m.get('load_1m', '?'):.2f}"
+            f"  {m.get('timestamp', '?')}: CPU={cpu}% MEM={mem}% DISK={disk}% LOAD={load}"
         )
 
     # Format processes
@@ -80,13 +93,14 @@ def build_analysis_prompt(
             f"MEM: {p.get('memory_percent', '?')}%)"
         )
 
+    score_str = _fmt_float(correlation_score)
     user_content = f"""INCIDENT ANALYSIS REQUEST
 
 Incident ID: {incident.get('id', 'N/A')}
 Hostname: {incident.get('hostname', 'N/A')}
 Started: {incident.get('started_at', 'N/A')}
 Observation Count: {incident.get('observation_count', 1)}
-Correlation Score: {correlation_score:.1f}
+Correlation Score: {score_str}
 
 DETECTED ANOMALIES:
 {chr(10).join(anomaly_lines) if anomaly_lines else "  None"}
@@ -108,3 +122,6 @@ Please analyze the above evidence and return a JSON response matching this schem
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": user_content},
     ]
+
+
+build_incident_analysis_prompt = build_analysis_prompt

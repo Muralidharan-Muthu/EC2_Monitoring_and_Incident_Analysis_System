@@ -47,7 +47,7 @@ class Settings(BaseSettings):
 
     # ---- Groq LLM ----
     groq_api_key: str = Field(default="")
-    groq_model: str = Field(default="llama-3.3-70b-versatile")
+    groq_model: str = Field(default="qwen/qwen3.8-27b")
 
     # ---- Security ----
     monitoring_agent_api_key: str = Field(default="")
