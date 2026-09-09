@@ -35,6 +35,45 @@ This system solves that problem by:
 
 ---
 
+## 🚀 Quick Start
+
+### Option 1: Single-Command Startup (Recommended)
+
+Run everything (Backend + Frontend + Agent) with a single script:
+
+```bash
+# Linux / macOS / Git Bash
+chmod +x start.sh
+./start.sh
+
+# Windows (Command Prompt or PowerShell)
+start.bat
+# or in PowerShell:
+.\start.ps1
+```
+
+Available script modes:
+| Command | Action |
+|---|---|
+| `./start.sh` (or `start.bat`) | Prepares and launches Backend, Frontend, and Agent concurrently |
+| `./start.sh dev` | Launches Backend and Frontend only (interview demo mode) |
+| `./start.sh setup` | Installs all dependencies (Python venvs, npm packages) and migrations |
+| `./start.sh backend` | Runs FastAPI backend on `http://localhost:8000` |
+| `./start.sh frontend` | Runs React frontend on `http://localhost:5173` |
+| `./start.sh agent` | Runs EC2 monitoring agent |
+
+### Option 2: Local Docker Postgres + Dev Servers
+
+```bash
+# 1. Start local PostgreSQL
+docker compose up -d db
+
+# 2. Run backend migrations & launch dev servers
+./start.sh dev
+```
+
+---
+
 ## Architecture
 
 ![Architecture](./docs/architecture.png)

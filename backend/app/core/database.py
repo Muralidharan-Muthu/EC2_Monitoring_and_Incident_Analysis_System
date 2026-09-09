@@ -14,19 +14,48 @@ from sqlalchemy.ext.asyncio import (
 )
 from sqlalchemy.orm import DeclarativeBase
 
+from sqlalchemy.pool import NullPool
+
 from app.core.config import get_settings
 
 settings = get_settings()
 
 # ---------------------------------------------------------------------------
-# Engine
+# Engine Configuration
 # ---------------------------------------------------------------------------
+connect_args: dict = {}
+engine_kwargs: dict = {
+    "echo": settings.debug,
+}
+
+if "sqlite" in settings.database_url:
+    connect_args["check_same_thread"] = False
+    engine_kwargs["connect_args"] = connect_args
+else:
+    # Disable asyncpg statement cache for PgBouncer / Supavisor poolers
+    connect_args["statement_cache_size"] = 0
+    connect_args["prepared_statement_cache_size"] = 0
+
+    # Set PostgreSQL search_path to user-configured schema
+    schema = getattr(settings, "supabase_schema", None)
+    if schema:
+        connect_args["server_settings"] = {
+            "search_path": f"{schema},public"
+        }
+
+    engine_kwargs["connect_args"] = connect_args
+    engine_kwargs["pool_pre_ping"] = True
+
+    # NullPool for transaction pooler (port 6543) avoids client-side connection hoarding
+    if ":6543" in settings.database_url or "pooler.supabase.com" in settings.database_url:
+        engine_kwargs["poolclass"] = NullPool
+    else:
+        engine_kwargs["pool_size"] = 10
+        engine_kwargs["max_overflow"] = 20
+
 engine = create_async_engine(
     settings.database_url,
-    echo=settings.debug,
-    pool_pre_ping=True,
-    pool_size=10,
-    max_overflow=20,
+    **engine_kwargs,
 )
 
 # ---------------------------------------------------------------------------

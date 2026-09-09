@@ -18,7 +18,7 @@ class Settings(BaseSettings):
     """Application settings loaded from environment variables / .env file."""
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=(".env", "backend/.env"),
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
@@ -34,6 +34,16 @@ class Settings(BaseSettings):
     database_url: str = Field(
         default="postgresql+asyncpg://postgres:password@localhost:5432/ec2monitor"
     )
+    supabase_host: str = Field(default="")
+    supabase_port: int = Field(default=6543)
+    supabase_db: str = Field(default="postgres")
+    supabase_user: str = Field(default="")
+    supabase_password: str = Field(default="")
+    supabase_schema: str = Field(default="ec2_monitoring_working")
+    supabase_url: str = Field(default="")
+    supabase_anon_key: str = Field(default="")
+    supabase_service_key: str = Field(default="")
+    supabase_service_role_key: str = Field(default="")
 
     # ---- Groq LLM ----
     groq_api_key: str = Field(default="")
