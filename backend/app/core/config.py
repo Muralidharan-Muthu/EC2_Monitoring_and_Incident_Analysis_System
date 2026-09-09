@@ -45,6 +45,22 @@ class Settings(BaseSettings):
     supabase_service_key: str = Field(default="")
     supabase_service_role_key: str = Field(default="")
 
+    # ---- Remote EC2 SSH Configuration ----
+    ec2_host: str = Field(default="")
+    ec2_port: int = Field(default=22)
+    ec2_username: str = Field(default="ubuntu")
+    ec2_private_key_path: str = Field(default="")
+    ssh_connect_timeout_seconds: int = Field(default=10)
+    ssh_command_timeout_seconds: int = Field(default=15)
+
+    # ---- Collection Scheduling ----
+    collection_interval_seconds: int = Field(default=30)
+
+    # ---- Optional Application Response Time ----
+    monitored_url: str = Field(default="")
+    response_time_warning_ms: float = Field(default=1000.0)
+    response_time_critical_ms: float = Field(default=2000.0)
+
     # ---- Groq LLM ----
     groq_api_key: str = Field(default="")
     groq_model: str = Field(default="qwen/qwen3.8-27b")
@@ -78,10 +94,49 @@ class Settings(BaseSettings):
     @classmethod
     def validate_log_level(cls, v: str) -> str:
         allowed = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
-        upper = v.upper()
+        upper = v.upper() if v else "INFO"
         if upper not in allowed:
             raise ValueError(f"log_level must be one of {allowed}")
         return upper
+    @property
+    def resolved_key_path(self) -> str:
+        """Resolve private key path across working directories."""
+        if not self.ec2_private_key_path:
+            return ""
+        from pathlib import Path
+        p = Path(self.ec2_private_key_path)
+        if p.is_absolute() and p.is_file():
+            return str(p)
+        if p.is_file():
+            return str(p.resolve())
+        parent_candidate = Path("..") / self.ec2_private_key_path
+        if parent_candidate.is_file():
+            return str(parent_candidate.resolve())
+        backend_candidate = Path("backend") / self.ec2_private_key_path
+        if backend_candidate.is_file():
+            return str(backend_candidate.resolve())
+        return str(p)
+
+    def validate_ssh_key(self) -> tuple[bool, str]:
+        """Verify that private key exists, is a regular file, and is readable."""
+        if not self.ec2_private_key_path:
+            return False, "EC2_PRIVATE_KEY_PATH is not configured."
+        from pathlib import Path
+        key_file = Path(self.resolved_key_path)
+        if not key_file.exists():
+            return False, f"Private key file not found: {self.ec2_private_key_path}"
+        if not key_file.is_file():
+            return False, f"Private key path is not a regular file: {self.ec2_private_key_path}"
+        try:
+            with open(key_file, "r", encoding="utf-8") as f:
+                content = f.read(100)
+                if not content:
+                    return False, "Private key file is empty."
+        except PermissionError:
+            return False, "Permission denied reading private key file."
+        except Exception as exc:
+            return False, f"Error reading private key file: {exc}"
+        return True, "Key file is valid and readable."
 
 
 @lru_cache()

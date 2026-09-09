@@ -85,16 +85,39 @@ async def get_latest_metric(
 )
 async def get_metric_history(
     hostname: Optional[str] = Query(None),
-    minutes: int = Query(default=60, ge=1, le=1440, description="Look-back period in minutes"),
+    minutes: Optional[int] = Query(None, ge=1, le=1440, description="Look-back period in minutes"),
+    range: Optional[str] = Query(None, description="Preset range: 15m, 1h, 6h, 24h"),
+    start: Optional[str] = Query(None, description="Start ISO timestamp"),
+    end: Optional[str] = Query(None, description="End ISO timestamp"),
     db: AsyncSession = Depends(get_db),
 ) -> TimeSeriesResponse:
     """
     Return time-series metric data for the given period.
-
-    Used by the frontend to render CPU, memory, disk, and load charts.
+    Supports range='1h', minutes=60, or start/end timestamps.
     """
+    resolved_minutes = 60
+    if range:
+        range_clean = range.strip().lower()
+        if range_clean.endswith("m"):
+            try:
+                resolved_minutes = int(range_clean[:-1])
+            except ValueError:
+                pass
+        elif range_clean.endswith("h"):
+            try:
+                resolved_minutes = int(range_clean[:-1]) * 60
+            except ValueError:
+                pass
+        elif range_clean.endswith("d"):
+            try:
+                resolved_minutes = int(range_clean[:-1]) * 1440
+            except ValueError:
+                pass
+    elif minutes is not None:
+        resolved_minutes = minutes
+
     repo = MetricRepository(db)
-    metrics = await repo.get_history(hostname=hostname, minutes=minutes)
+    metrics = await repo.get_history(hostname=hostname, minutes=resolved_minutes)
 
     points = [
         TimeSeriesPoint(
@@ -113,5 +136,5 @@ async def get_metric_history(
     return TimeSeriesResponse(
         data=points,
         hostname=detected_hostname,
-        range_minutes=minutes,
+        range_minutes=resolved_minutes,
     )

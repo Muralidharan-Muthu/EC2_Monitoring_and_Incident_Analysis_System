@@ -63,6 +63,15 @@ async def get_dashboard_summary(
     latest_cpu = latest.cpu_usage if latest else None
     system_status = _determine_system_status(active_count, highest_severity, latest_cpu)
 
+    # Check SSH reachability
+    ssh_status = "CONNECTED"
+    from app.ssh.client import get_ssh_client
+    conn = await get_ssh_client().check_connection()
+    if not conn.connected:
+        ssh_status = "UNAVAILABLE"
+        if system_status == "HEALTHY":
+            system_status = "UNAVAILABLE"
+
     return DashboardSummary(
         system_status=system_status,
         active_incident_count=active_count,
@@ -71,8 +80,10 @@ async def get_dashboard_summary(
         latest_memory=latest.memory_usage if latest else None,
         latest_disk=latest.disk_usage if latest else None,
         latest_load_1m=latest.load_1m if latest else None,
-        hostname=latest.hostname if latest else None,
+        latest_response_time_ms=latest.response_time_ms if latest else None,
+        hostname=latest.hostname if latest else (conn.hostname or "unknown"),
         last_metric_at=latest.timestamp.isoformat() if latest else None,
+        ssh_status=ssh_status,
     )
 
 

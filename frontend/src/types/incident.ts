@@ -2,8 +2,8 @@
  * TypeScript type definitions for incident data.
  */
 
-export type IncidentStatus = 'OPEN' | 'INVESTIGATING' | 'RESOLVED';
-export type IncidentSeverity = 'WARNING' | 'CRITICAL';
+export type IncidentStatus = 'OPEN' | 'INVESTIGATING' | 'RESOLVED' | string;
+export type IncidentSeverity = 'LOW' | 'MEDIUM' | 'HIGH' | 'WARNING' | 'CRITICAL' | string;
 
 export interface AnomalySummary {
   id: string;
@@ -22,7 +22,7 @@ export interface IncidentAnalysis {
   evidence: string[];
   recommended_actions: string[];
   reasoning_summary: string;
-  analysis_source: 'llm' | 'rule_based';
+  analysis_source: 'llm' | 'groq' | 'rule_based' | 'rule_engine' | string;
   model_name: string | null;
   confidence: number | null;
   generated_at: string | null;
@@ -36,6 +36,7 @@ export interface Incident {
   severity: IncidentSeverity;
   hostname: string;
   started_at: string;
+  last_seen_at?: string | null;
   ended_at: string | null;
   created_at: string;
   updated_at: string;

@@ -1,49 +1,53 @@
 """
 Pydantic schemas for metric API requests and responses.
+Strictly preserves None for any uncollected or failed metrics.
 """
 
 from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List
 
 from pydantic import BaseModel, Field, field_validator
 
 
 class ProcessSnapshotSchema(BaseModel):
-    """Schema for a process snapshot embedded in metric payloads."""
+    """Schema for a process snapshot associated with a metric snapshot."""
 
-    process_name: str = Field(..., description="Name of the process")
+    id: Optional[uuid.UUID] = None
     pid: Optional[int] = Field(None, description="Process ID")
-    cpu_percent: Optional[float] = Field(None, ge=0, le=100)
-    memory_percent: Optional[float] = Field(None, ge=0, le=100)
-    snapshot_type: str = Field(default="top_cpu")  # "top_cpu" | "top_memory"
+    process_name: str = Field(..., description="Name of the process")
+    cpu_percent: Optional[float] = Field(None, ge=0)
+    memory_percent: Optional[float] = Field(None, ge=0)
+    snapshot_type: Optional[str] = Field(default="top_process")
 
     model_config = {"from_attributes": True}
 
 
 class MetricIngest(BaseModel):
     """
-    Payload sent by the monitoring agent to POST /api/metrics.
-
-    All percentage fields are validated to be within [0, 100].
+    Payload for metric ingestion. All metric measurements are nullable.
     """
 
     hostname: str = Field(..., min_length=1, max_length=255)
     timestamp: datetime = Field(..., description="ISO 8601 timestamp (UTC)")
 
-    # Core metrics
-    cpu_usage: float = Field(..., ge=0, le=100, description="CPU usage percentage")
-    memory_usage: float = Field(..., ge=0, le=100)
-    disk_usage: float = Field(..., ge=0, le=100)
-    load_1m: float = Field(..., ge=0)
-    load_5m: float = Field(..., ge=0)
-    load_15m: float = Field(..., ge=0)
+    # Core metrics (nullable — None means failed/unavailable)
+    cpu_usage: Optional[float] = Field(None, ge=0, le=100, description="CPU usage percentage")
+    memory_usage: Optional[float] = Field(None, ge=0, le=100)
+    disk_usage: Optional[float] = Field(None, ge=0, le=100)
+    load_1m: Optional[float] = Field(None, ge=0)
+    load_5m: Optional[float] = Field(None, ge=0)
+    load_15m: Optional[float] = Field(None, ge=0)
 
     # Supporting info
-    cpu_count: int = Field(default=1, ge=1)
+    cpu_count: Optional[int] = Field(None, ge=1)
+    memory_total_mb: Optional[float] = Field(None, ge=0)
+    memory_used_mb: Optional[float] = Field(None, ge=0)
     memory_available_mb: Optional[float] = Field(None, ge=0)
+    disk_total_gb: Optional[float] = Field(None, ge=0)
+    disk_used_gb: Optional[float] = Field(None, ge=0)
     disk_free_gb: Optional[float] = Field(None, ge=0)
 
     # Network
@@ -54,13 +58,14 @@ class MetricIngest(BaseModel):
     response_time_ms: Optional[float] = Field(None, ge=0)
     http_status: Optional[int] = Field(None)
 
-    # Process info (embedded directly in the agent payload)
+    # Process info
     top_cpu_process: Optional[str] = Field(None)
     top_cpu_percent: Optional[float] = Field(None, ge=0, le=100)
     top_memory_process: Optional[str] = Field(None)
     top_memory_percent: Optional[float] = Field(None, ge=0, le=100)
     top_cpu_pid: Optional[int] = None
     top_memory_pid: Optional[int] = None
+    processes: Optional[List[ProcessSnapshotSchema]] = None
 
     # OS information
     os_name: Optional[str] = Field(None, max_length=255)
@@ -68,33 +73,39 @@ class MetricIngest(BaseModel):
 
     @field_validator("cpu_usage", "memory_usage", "disk_usage", mode="before")
     @classmethod
-    def clamp_percent(cls, v: float) -> float:
-        """Clamp percentage values to [0, 100] to handle edge cases."""
+    def clamp_percent(cls, v: Optional[float]) -> Optional[float]:
+        if v is None:
+            return None
         return max(0.0, min(100.0, float(v)))
 
 
 class MetricResponse(BaseModel):
-    """Full metric record returned by the API."""
+    """Full metric record returned by the API. Preserves None for missing data."""
 
     id: uuid.UUID
     hostname: str
     timestamp: datetime
-    cpu_usage: float
-    memory_usage: float
-    disk_usage: float
-    load_1m: float
-    load_5m: float
-    load_15m: float
-    cpu_count: int
-    memory_available_mb: Optional[float]
-    disk_free_gb: Optional[float]
-    network_rx_bytes: Optional[int]
-    network_tx_bytes: Optional[int]
-    response_time_ms: Optional[float]
-    http_status: Optional[int]
-    os_name: Optional[str]
-    kernel_version: Optional[str]
+    cpu_usage: Optional[float] = None
+    cpu_count: Optional[int] = None
+    memory_usage: Optional[float] = None
+    memory_total_mb: Optional[float] = None
+    memory_used_mb: Optional[float] = None
+    memory_available_mb: Optional[float] = None
+    disk_usage: Optional[float] = None
+    disk_total_gb: Optional[float] = None
+    disk_used_gb: Optional[float] = None
+    disk_free_gb: Optional[float] = None
+    load_1m: Optional[float] = None
+    load_5m: Optional[float] = None
+    load_15m: Optional[float] = None
+    network_rx_bytes: Optional[int] = None
+    network_tx_bytes: Optional[int] = None
+    response_time_ms: Optional[float] = None
+    http_status: Optional[int] = None
+    os_name: Optional[str] = None
+    kernel_version: Optional[str] = None
     created_at: datetime
+    processes: Optional[List[ProcessSnapshotSchema]] = None
 
     model_config = {"from_attributes": True}
 

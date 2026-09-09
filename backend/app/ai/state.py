@@ -1,61 +1,65 @@
 """
-Typed state for the LangGraph incident analysis workflow.
+Typed state for the 8-node LangGraph incident analysis workflow.
 
-Each node in the graph reads from and writes to this state object.
-Using TypedDict ensures type safety throughout the graph.
+State flows through:
+START -> context -> evidence -> correlation -> severity -> root_cause -> recommendation -> summary -> validation -> END
 """
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any, List, Optional
 from typing_extensions import TypedDict
 
 
-class IncidentAnalysisState(TypedDict):
+class IncidentAnalysisState(TypedDict, total=False):
     """
-    Shared state passed between all LangGraph nodes.
-
-    Fields are progressively populated as the graph executes.
+    Shared state passed between all 8 LangGraph nodes.
     """
 
-    # ---- Input ----
+    # Identifiers
     incident_id: str
+    host: str
     hostname: str
 
-    # Raw data loaded from the database
+    # Raw context loaded from DB & collectors
     incident_data: dict[str, Any]
-    recent_metrics: list[dict[str, Any]]
-    anomalies: list[dict[str, Any]]
-    process_snapshots: list[dict[str, Any]]
+    recent_metrics: List[dict[str, Any]]
+    anomalies: List[dict[str, Any]]
+    process_evidence: List[dict[str, Any]]
+    log_evidence: List[dict[str, Any]]
 
-    # ---- Intermediate results ----
-    # Validation step
+    # Step 2: Evidence validation
     valid: bool
-    validation_notes: list[str]
+    validation_notes: List[str]
+    evidence: List[str]
 
-    # Correlation step
+    # Step 3: Correlation
     correlation_score: float
+    affected_metrics: List[str]
     time_span_minutes: float
-    affected_metrics: list[str]
-    evidence: list[str]
 
-    # Severity assessment
+    # Step 4: Severity
+    deterministic_severity: str
     assessed_severity: str
+    deterministic_findings: List[str]
 
-    # Root cause determination
+    # Step 5: Root Cause
     probable_cause: str
 
-    # Recommended actions
-    recommended_actions: list[str]
+    # Step 6: Recommendations
+    recommended_actions: List[str]
 
-    # ---- Output ----
+    # Step 7: Summary
     reasoning_summary: str
+    final_summary: str
     confidence: float
-    analysis_source: str  # "llm" | "rule_based"
+    analysis_source: str  # "groq" | "rule_engine"
     model_name: Optional[str]
 
-    # Raw LLM output for debugging
+    # Step 8: Validation
+    validation_passed: bool
+    structured_output: dict[str, Any]
     raw_llm_output: Optional[dict[str, Any]]
 
-    # Error tracking — allows graceful degradation
-    errors: list[str]
+    # Diagnostics
+    errors: List[str]

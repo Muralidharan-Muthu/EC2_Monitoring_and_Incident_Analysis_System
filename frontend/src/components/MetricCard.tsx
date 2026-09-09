@@ -1,8 +1,9 @@
 /**
- * MetricCard — displays a single metric value with a label and status indicator.
+ * MetricCard — displays a single metric value with status and strict null formatting.
  */
 
 import React from 'react';
+import { formatMetric } from '../utils/format';
 
 interface MetricCardProps {
   label: string;
@@ -35,15 +36,18 @@ export const MetricCard: React.FC<MetricCardProps> = ({
   description,
 }) => {
   const statusClass = getStatusClass(value, warningThreshold, criticalThreshold);
-  const displayValue =
-    value != null ? value.toFixed(precision) : '—';
+  const formatted = formatMetric(value, unit, precision);
 
   return (
     <div className={`metric-card ${statusClass}`} role="region" aria-label={label}>
       <div className="metric-card-label">{label}</div>
       <div className="metric-card-value">
-        {displayValue}
-        <span className="metric-card-unit">{unit}</span>
+        {formatted === '-' ? '-' : (
+          <>
+            {value != null ? value.toFixed(precision) : '-'}
+            <span className="metric-card-unit">{unit}</span>
+          </>
+        )}
       </div>
       {description && <div className="metric-card-desc">{description}</div>}
       {value != null && (

@@ -1,604 +1,488 @@
 # EC2 Monitoring and Incident Analysis System
 
-A production-style observability platform that monitors a Linux-based AWS EC2 instance, detects anomalous behavior using deterministic rules, correlates related anomalies into incidents, and uses a **LangGraph + Groq LLM** workflow to generate evidence-based incident analysis.
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688.svg?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
+[![React](https://img.shields.io/badge/React-18.3+-61DAFB.svg?logo=react&logoColor=black)](https://react.dev)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.6+-3178C6.svg?logo=typescript&logoColor=white)](https://www.typescriptlang.org)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-Supabase-336791.svg?logo=postgresql&logoColor=white)](https://supabase.com)
+[![LangGraph](https://img.shields.io/badge/LangGraph-Workflow-FF6F00.svg)](https://langchain-ai.github.io/langgraph/)
+[![Groq](https://img.shields.io/badge/Groq-qwen3.8--27b-F55036.svg)](https://groq.com)
+[![AsyncSSH](https://img.shields.io/badge/AsyncSSH-Remote_Monitoring-blue.svg)](https://asyncssh.readthedocs.io)
+
+An agentless, production-grade cloud infrastructure monitoring and incident analysis platform. The backend connects securely to a remote AWS EC2 Linux instance over **SSH**, executes safe native Linux telemetry commands, parses performance metrics, deterministically detects abnormal behavior with persistence tracking, correlates related multi-metric abnormalities into unified incidents, and produces structured incident root cause analysis using an **8-node LangGraph workflow powered by Groq (`qwen/qwen3.8-27b`)** with resilient deterministic fallback.
 
 ---
 
-## Problem Statement
+## Architecture Diagram
 
-Traditional monitoring tools produce one alert per threshold violation, leading to **alert storms** where a single root cause generates dozens of notifications. Engineers need to manually correlate these alerts to understand what is actually happening.
-
-This system solves that problem by:
-1. Detecting individual metric anomalies deterministically
-2. **Correlating** related anomalies within a time window into a **single incident**
-3. Using **AI reasoning** to generate a human-readable explanation of what happened and why
-4. Presenting everything in a clean, professional dashboard
+![System Architecture](docs/architecture.png)
 
 ---
 
-## Features
+## Table of Contents
 
-- ✅ Real-time Linux system monitoring (CPU, Memory, Disk, Load, Network, Processes)
-- ✅ Rule-based anomaly detection with configurable thresholds
-- ✅ Persistence detection (N consecutive samples before incident creation)
-- ✅ Temporal correlation engine — multiple anomalies → one incident
-- ✅ Incident deduplication — same ongoing condition updates one incident
-- ✅ Incident lifecycle (OPEN → INVESTIGATING → RESOLVED)
-- ✅ LangGraph 6-node analysis workflow
-- ✅ Groq LLM integration for evidence-based reasoning
-- ✅ Graceful LLM fallback — monitoring never depends on AI availability
-- ✅ React dashboard with live metrics and incident detail pages
-- ✅ Process snapshot tracking (top CPU/memory processes)
-- ✅ Optional HTTP response time monitoring
-- ✅ Safe Linux log inspection via journalctl
-- ✅ Comprehensive test suite
+1. [Project Overview](#1-project-overview)
+2. [Assessment Requirements Mapping](#2-assessment-requirements-mapping)
+3. [Architecture](#3-architecture)
+4. [Technology Stack](#4-technology-stack)
+5. [Project Structure](#5-project-structure)
+6. [SSH Monitoring Architecture](#6-ssh-monitoring-architecture)
+7. [Linux Commands Explained](#7-linux-commands-explained)
+8. [Environment Variables](#8-environment-variables)
+9. [Supabase Configuration](#9-supabase-configuration)
+10. [Groq Configuration](#10-groq-configuration)
+11. [Backend Setup](#11-backend-setup)
+12. [Frontend Setup](#12-frontend-setup)
+13. [SSH Key Configuration](#13-ssh-key-configuration)
+14. [Running the System](#14-running-the-system)
+15. [API Documentation](#15-api-documentation)
+16. [Monitoring Process](#16-monitoring-process)
+17. [Anomaly Detection](#17-anomaly-detection)
+18. [Incident Correlation](#18-incident-correlation)
+19. [LangGraph Workflow](#19-langgraph-workflow)
+20. [Groq Analysis](#20-groq-analysis)
+21. [Testing](#21-testing)
+22. [Stress Testing](#22-stress-testing)
+23. [Example Incident Scenario](#23-example-incident-scenario)
+24. [Troubleshooting](#24-troubleshooting)
+25. [Security Considerations](#25-security-considerations)
+26. [Future Improvements](#26-future-improvements)
 
 ---
 
-## 🚀 Quick Start
+## 1. Project Overview
 
-### Option 1: Single-Command Startup (Recommended)
+Modern cloud infrastructure monitoring often forces teams to choose between complex, heavyweight agent deployments (like Datadog or Prometheus node-exporter) and fragile cloud-provider integrations. 
 
-Run everything (Backend + Frontend + Agent) with a single script:
+The **EC2 Monitoring and Incident Analysis System** solves this by implementing **agentless remote monitoring**:
+- The monitoring backend securely SSHes into the remote EC2 instance on a configurable schedule (default every 30 seconds) or on-demand.
+- Native Linux `/proc` and system commands collect raw metrics.
+- **Strict Null Safety Rule**: If a command or metric fails, it is stored and reported as `null` (`"-"` in UI). The system **NEVER** fabricates fake default values like `CPU=0%` or `Memory=0%`.
+- Deterministic rules detect anomalies and track persistence across consecutive samples.
+- A correlation engine groups multi-metric symptoms (e.g. CPU + Memory + System Load) into **one** unified incident with deduplication.
+- An 8-node LangGraph pipeline enhances the incident with structured root cause analysis and remediation commands via Groq LLM, while guaranteeing complete deterministic rule fallback if the LLM is unavailable.
 
-```bash
-# Linux / macOS / Git Bash
-chmod +x start.sh
-./start.sh
+---
 
-# Windows (Command Prompt or PowerShell)
-start.bat
-# or in PowerShell:
-.\start.ps1
+## 2. Assessment Requirements Mapping
+
+| Requirement | Description | Implementation in Codebase |
+|---|---|---|
+| **Requirement 1: AWS EC2 Launch / Configuration** | Target remote Linux instance on AWS EC2 Ubuntu | Configured via environment variables (`EC2_HOST`, `EC2_PORT`, `EC2_USERNAME`, `EC2_PRIVATE_KEY_PATH`). Zero hardcoding. Verified live against `ubuntu@ec2-3-110-104-207.ap-south-1.compute.amazonaws.com`. |
+| **Requirement 2: Linux Commands / Tools** | Remote execution of standard Linux diagnostic commands | Modular collectors in `backend/app/collectors/` using `mpstat`, `nproc`, `free -m`, `df -P /`, `cat /proc/loadavg`, `ps -eo ...`, `cat /proc/net/dev`, `journalctl -p warning..err`, and `uname -r`. |
+| **Requirement 3: Python Application / Script** | Backend server, database persistence, and schedulers | FastAPI async application, SQLAlchemy 2.0 with asyncpg, Alembic migrations to Supabase PostgreSQL, AsyncSSH client session reuse. |
+| **Requirement 4: Abnormal Behavior Detection** | Deterministic thresholding and persistence tracking | `backend/app/anomaly/rules.py` and `persistence.py`. Skips `null` metrics without assuming normal. Requires N=3 consecutive samples for persistence. |
+| **Requirement 5: Correlated Incident Analysis** | Multi-anomaly grouping into a single incident | `backend/app/incidents/correlation.py` and `incident_service.py`. Sliding 5-minute temporal window and semantic family grouping. Prevents duplicate incidents. |
+| **Requirement 6: Severity, Causes, and Recommendations** | 4-tier severity, probable cause, actionable actions | Explicit severity calculation (`LOW`, `MEDIUM`, `HIGH`, `CRITICAL`), 8-node LangGraph pipeline in `backend/app/ai/nodes/`, Groq LLM integration with deterministic fallback. |
+
+---
+
+## 3. Architecture
+
+The system follows a strict unidirectional security boundary:
 ```
-
-Available script modes:
-| Command | Action |
-|---|---|
-| `./start.sh` (or `start.bat`) | Prepares and launches Backend, Frontend, and Agent concurrently |
-| `./start.sh dev` | Launches Backend and Frontend only (interview demo mode) |
-| `./start.sh setup` | Installs all dependencies (Python venvs, npm packages) and migrations |
-| `./start.sh backend` | Runs FastAPI backend on `http://localhost:8000` |
-| `./start.sh frontend` | Runs React frontend on `http://localhost:5173` |
-| `./start.sh agent` | Runs EC2 monitoring agent |
-
-### Option 2: Local Docker Postgres + Dev Servers
-
-```bash
-# 1. Start local PostgreSQL
-docker compose up -d db
-
-# 2. Run backend migrations & launch dev servers
-./start.sh dev
-```
-
----
-
-## Architecture
-
-![Architecture](./docs/architecture.png)
-
-See [docs/architecture.md](./docs/architecture.md) for detailed explanation.
-
-```
-EC2 Linux Instance
-        │
-        ▼ (HTTP POST every 30s)
-Python Monitoring Agent
-        │
-        ▼
+React Dashboard (Vite)
+        ↓ HTTP REST (/api/...)
 FastAPI Backend
-        ├── Rule-Based Anomaly Detector
-        ├── Persistence Tracker
-        ├── Correlation Engine ──→ Incident Manager
-        └── Supabase PostgreSQL
-                │
-                ▼ (on demand)
-        LangGraph Workflow
-                └── Groq LLM (reasoning)
-                        │
-                        ▼
-                React Dashboard
+        ↓ SSH (:22) with Private Key
+AWS EC2 Ubuntu Host (Linux Commands)
 ```
+
+The React frontend **NEVER** communicates directly with EC2 or holds SSH keys. The private `.pem` key remains strictly on the FastAPI server and is excluded from source control.
 
 ---
 
-## Tech Stack
+## 4. Technology Stack
 
-| Layer | Technology |
-|---|---|
-| Monitoring Agent | Python, psutil, httpx, tenacity |
-| Backend | Python, FastAPI, Pydantic, SQLAlchemy, Alembic |
-| Database | PostgreSQL on Supabase |
-| AI | LangGraph, Groq API, llama-3.3-70b-versatile |
-| Frontend | React, Vite, TypeScript, Recharts, Axios |
-| Auth | API key header (X-API-Key) |
+- **Backend**: Python 3.11, FastAPI, Pydantic v2, SQLAlchemy 2.0 (async), AsyncSSH, Structlog, Tenacity, Alembic.
+- **Frontend**: React 18, Vite, TypeScript, Recharts, Axios, Vanilla CSS design system.
+- **Database**: PostgreSQL on Supabase (`db.zgohttvynajravzciame.supabase.co:5432`, schema `ec2_monitoring_working`).
+- **AI / Agentic**: LangGraph (8-node StateGraph), Groq Python SDK, model `qwen/qwen3.8-27b`.
+- **Operating System**: Linux (Ubuntu 22.04 / 24.04 / 26.04) on AWS EC2.
 
 ---
 
-## Project Structure
+## 5. Project Structure
 
 ```
-ec2-monitoring-system/
+EC2_Monitoring/
 ├── backend/
 │   ├── app/
-│   │   ├── api/routes/         # FastAPI route handlers (thin)
-│   │   ├── ai/                 # LangGraph workflow + Groq client
-│   │   │   └── nodes/          # Individual graph nodes
-│   │   ├── core/               # Config, DB, logging, security
-│   │   ├── models/             # SQLAlchemy ORM models
-│   │   ├── repositories/       # Database access layer
-│   │   ├── schemas/            # Pydantic request/response schemas
-│   │   ├── services/           # Business logic
-│   │   ├── tests/              # Unit and integration tests
-│   │   └── main.py             # Application entry point
-│   ├── alembic/                # Database migrations
-│   ├── requirements.txt
-│   └── .env.example
-│
-├── agent/
-│   ├── collectors/             # Individual metric collectors
-│   │   ├── cpu.py              # CPU + load average
-│   │   ├── memory.py           # Memory usage
-│   │   ├── disk.py             # Disk usage
-│   │   ├── network.py          # Network I/O
-│   │   ├── process.py          # Top processes
-│   │   ├── system.py           # Hostname, OS info
-│   │   ├── logs.py             # journalctl log inspection
-│   │   └── load.py             # Optional HTTP response time
-│   ├── monitor_agent.py        # Main agent entry point
-│   ├── sender.py               # HTTP delivery with retry
-│   ├── config.py               # Environment configuration
-│   ├── requirements.txt
-│   └── .env.example
-│
+│   │   ├── ai/                      # 8-node LangGraph + Groq pipeline
+│   │   │   ├── nodes/               # context, evidence, correlation, severity, root_cause, recommendation, summary, validation
+│   │   │   ├── graph.py             # Compiled LangGraph StateGraph
+│   │   │   ├── groq_client.py       # Groq API client with retry logic
+│   │   │   ├── prompts.py           # Structured prompts
+│   │   │   └── state.py             # Strongly typed IncidentAnalysisState
+│   │   ├── anomaly/                 # Deterministic anomaly detection
+│   │   │   ├── detector.py          # Main anomaly orchestrator
+│   │   │   ├── persistence.py       # Consecutive violation tracking
+│   │   │   └── rules.py             # Threshold & trend rules (null-safe)
+│   │   ├── api/routes/              # FastAPI endpoints
+│   │   │   ├── health.py            # /api/health
+│   │   │   ├── monitoring.py        # /api/monitoring (status, current, collect)
+│   │   │   ├── metrics.py           # /api/metrics (latest, history)
+│   │   │   ├── incidents.py         # /api/incidents (list, detail, analyze)
+│   │   │   └── dashboard.py         # /api/dashboard/summary
+│   │   ├── collectors/              # Remote SSH Linux collectors
+│   │   │   ├── cpu.py               # mpstat 1 1, nproc, /proc/stat
+│   │   │   ├── memory.py            # free -m
+│   │   │   ├── disk.py              # df -P /
+│   │   │   ├── load.py              # /proc/loadavg
+│   │   │   ├── process.py           # ps top CPU/memory
+│   │   │   ├── network.py           # /proc/net/dev
+│   │   │   ├── logs.py              # journalctl
+│   │   │   ├── response_time.py     # Optional HTTP probe
+│   │   │   └── system.py            # hostname, uname, os-release
+│   │   ├── core/                    # config, database, logging
+│   │   ├── incidents/               # Correlation, severity, lifecycle
+│   │   ├── models/                  # SQLAlchemy models
+│   │   ├── monitoring/              # CollectorService, Normalizer, SnapshotService
+│   │   ├── schemas/                 # Pydantic validation schemas
+│   │   └── tests/                   # 59 automated pytest tests
+│   ├── alembic/                     # Database migrations
+│   ├── requirements.txt             # Backend dependencies
+│   └── .env.example                 # Example configuration
 ├── frontend/
 │   ├── src/
-│   │   ├── components/         # Reusable UI components
-│   │   ├── hooks/              # Custom React hooks with polling
-│   │   ├── pages/              # Dashboard, Metrics, Incidents, Detail
-│   │   ├── services/           # API client functions
-│   │   ├── types/              # TypeScript type definitions
-│   │   ├── App.tsx             # Router + sidebar navigation
-│   │   └── main.tsx            # React entry point
+│   │   ├── components/              # MetricCard, MetricChart, StatusBadge, IncidentCard, IncidentTimeline, ProcessTable, LogPanel
+│   │   ├── pages/                   # Dashboard, Metrics, Incidents, IncidentDetail
+│   │   ├── services/                # api, monitoringApi, metricsApi, incidentsApi
+│   │   └── utils/                   # format.ts (strict null handling)
 │   ├── package.json
 │   └── .env.example
-│
-├── docs/
-│   ├── architecture.md
-│   └── architecture.png
-│
-├── docker-compose.yml
-├── .gitignore
-└── README.md
+├── docs/                            # architecture.md, architecture.png, incident-analysis.md
+├── start.bat                        # Windows launcher
+├── start.ps1                        # PowerShell launcher
+├── start.sh                         # Linux/macOS launcher
+└── README.md                        # Documentation
 ```
 
 ---
 
-## Linux Monitoring Approach
+## 6. SSH Monitoring Architecture
 
-The monitoring agent uses a layered approach:
+The backend establishes an async SSH connection via `AsyncSSH` to the remote EC2 instance.
 
-### psutil (primary)
-Cross-platform Python library providing:
-- `cpu_percent()` — CPU usage with 1-second measurement interval
-- `virtual_memory()` — Memory usage and available bytes
-- `disk_usage()` — Disk usage for mount point
-- `net_io_counters()` — Network bytes sent/received
-- `process_iter()` — Per-process CPU and memory usage
-- `getloadavg()` — 1/5/15-minute load averages
-
-### Linux system commands (supplementary, via allowlist)
-Only commands in the explicit allowlist may be executed:
-- `journalctl` — recent error/warning log entries
-
-The allowlist prevents arbitrary command execution. All subprocess calls use `timeout`, `capture_output=True`, and `check=False` to handle failures safely.
+### Key Implementation Principles:
+1. **Connection Reuse**: Executing 8 separate SSH handshakes per cycle adds 10+ seconds of overhead. `EC2SSHClient.session()` reuses a single authenticated session across all collectors in a cycle, finishing in **~1.5 seconds**.
+2. **Strict Command Allowlist**: Only pre-approved diagnostic command templates are permitted. Frontend users cannot submit arbitrary shell commands.
+3. **Graceful Degradation**: If an individual collector command fails (e.g. permission denied or missing binary), that specific metric returns `null`, while all other collectors succeed.
 
 ---
 
-## Monitoring Agent
+## 7. Linux Commands Explained
 
-### Configuration
+| Metric / Domain | Linux Command | Technical Rationale |
+|---|---|---|
+| **CPU Utilization** | `mpstat 1 1` | Provides high-precision, instantaneous CPU %idle across 1-second sample without historical skew. |
+| **CPU Core Count** | `nproc` | Measures active CPU processing cores; baseline for system load threshold calculations. |
+| **Memory Breakdown** | `free -m` | Provides accurate RAM stats in MB. Usage calculated via `((total - available) / total) * 100` to properly treat disk caches/buffers as reclaimable. |
+| **Disk Storage** | `df -P /` | Uses POSIX portable output format to prevent line-wrapping on long mount strings. |
+| **System Load** | `cat /proc/loadavg` | Native kernel interface reporting 1-minute, 5-minute, and 15-minute runnable and uninterruptible queue depths. |
+| **Processes** | `ps -eo pid,comm,%cpu,%mem --sort=-%cpu \| head -n 11` | Collects top CPU and memory consumers with PID and process names for forensic evidence. |
+| **Network I/O** | `cat /proc/net/dev` | Aggregates bytes received and transmitted across all physical network adapters (skips loopback `lo`). |
+| **System Logs** | `journalctl -p warning..err -n 20 --no-pager` | Focuses on active kernel and service warnings/errors without reading unbounded logs. |
+| **Host Information** | `hostname`, `uname -r`, `cat /etc/os-release` | Verifies OS distribution, AWS kernel version, and instance identifier. |
 
+---
+
+## 8. Environment Variables
+
+Create `backend/.env` based on `backend/.env.example`:
+
+```env
+APP_ENV=development
+DEBUG=false
+LOG_LEVEL=INFO
+
+# Database (Supabase PostgreSQL)
+DATABASE_URL=postgresql+asyncpg://postgres:YOUR_PASSWORD@db.zgohttvynajravzciame.supabase.co:5432/postgres
+
+# Remote EC2 SSH Configuration
+EC2_HOST=ec2-3-110-104-207.ap-south-1.compute.amazonaws.com
+EC2_PORT=22
+EC2_USERNAME=ubuntu
+EC2_PRIVATE_KEY_PATH=ec2-monitoring-key.pem
+SSH_CONNECT_TIMEOUT_SECONDS=10
+SSH_COMMAND_TIMEOUT_SECONDS=15
+
+# Background Collection Schedule
+COLLECTION_INTERVAL_SECONDS=30
+
+# Deterministic Thresholds
+CPU_WARNING_THRESHOLD=70
+CPU_CRITICAL_THRESHOLD=90
+MEMORY_WARNING_THRESHOLD=75
+MEMORY_CRITICAL_THRESHOLD=90
+DISK_WARNING_THRESHOLD=80
+DISK_CRITICAL_THRESHOLD=90
+CORRELATION_WINDOW_MINUTES=5
+ANOMALY_CONSECUTIVE_SAMPLES=3
+
+# Groq LLM Configuration
+GROQ_API_KEY=gsk_...
+GROQ_MODEL=qwen/qwen3.8-27b
+
+# Optional HTTP App Response Time
+MONITORED_URL=
+RESPONSE_TIME_WARNING_MS=1000
+RESPONSE_TIME_CRITICAL_MS=2000
+
+CORS_ORIGINS=http://localhost:5173,http://localhost:3000
+```
+
+---
+
+## 9. Supabase Configuration
+
+1. Use direct connection URI `db.zgohttvynajravzciame.supabase.co:5432` with user `postgres`.
+2. Target schema: `ec2_monitoring_working`.
+3. Run migrations:
 ```bash
-cd agent
-cp .env.example .env
-# Edit .env with your backend URL and API key
-```
-
-### Running on EC2
-
-```bash
-# Install dependencies
-pip install -r requirements.txt
-
-# Run
-python monitor_agent.py
-```
-
-The agent:
-1. Collects metrics every `COLLECTION_INTERVAL_SECONDS` (default: 30)
-2. Sends a JSON payload to `BACKEND_URL/api/metrics`
-3. Retries up to `MAX_RETRIES` times with exponential backoff
-4. Continues operating if individual collectors fail
-5. Gracefully stops on SIGTERM/SIGINT
-
-### Agent Payload Format
-
-```json
-{
-  "hostname": "ec2-prod-01",
-  "timestamp": "2026-09-09T10:00:00Z",
-  "cpu_usage": 92.4,
-  "memory_usage": 88.1,
-  "disk_usage": 85.0,
-  "load_1m": 4.2,
-  "load_5m": 3.8,
-  "load_15m": 3.1,
-  "cpu_count": 2,
-  "memory_available_mb": 210.0,
-  "disk_free_gb": 3.1,
-  "network_rx_bytes": 123456,
-  "network_tx_bytes": 987654,
-  "top_cpu_process": "python3",
-  "top_cpu_percent": 87.4,
-  "top_memory_process": "python3",
-  "top_memory_percent": 41.2,
-  "response_time_ms": 2100.0,
-  "http_status": 200
-}
+cd backend
+python -m alembic upgrade head
 ```
 
 ---
 
-## FastAPI Backend
+## 10. Groq Configuration
 
-### Setup
+- Tested and benchmarked model: `qwen/qwen3.8-27b`.
+- Operates in strict JSON object mode (`response_format={"type": "json_object"}`).
+- Low temperature (`0.1`) ensures deterministic and reproducible reasoning.
+- If `GROQ_API_KEY` is omitted or invalid, the backend automatically switches to `rule_engine` mode with zero impact on monitoring.
+
+---
+
+## 11. Backend Setup
 
 ```bash
 cd backend
-
-# Create virtual environment
 python -m venv venv
-.\venv\Scripts\activate   # Windows
-source venv/bin/activate  # Linux/macOS
 
-# Install dependencies
+# Windows
+.\venv\Scripts\activate
+# Linux/macOS
+source venv/bin/activate
+
 pip install -r requirements.txt
-
-# Configure environment
-cp .env.example .env
-# Edit .env with your Supabase URL and Groq API key
-
-# Run database migrations
 alembic upgrade head
-
-# Start the server
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-```
-
-### API Documentation
-
-With the server running, visit:
-- **Swagger UI**: http://localhost:8000/docs
-- **ReDoc**: http://localhost:8000/redoc
-
-### Key Endpoints
-
-| Method | Path | Description |
-|---|---|---|
-| GET | `/api/health` | Health check |
-| POST | `/api/metrics` | Ingest metrics from agent |
-| GET | `/api/metrics/latest` | Latest metric snapshot |
-| GET | `/api/metrics/history` | Historical time-series |
-| GET | `/api/anomalies` | Recent anomalies |
-| GET | `/api/incidents` | Incident list |
-| GET | `/api/incidents/{id}` | Incident detail |
-| POST | `/api/incidents/{id}/analyze` | Trigger AI analysis |
-| GET | `/api/dashboard/summary` | Dashboard overview |
-| GET | `/api/dashboard/timeseries` | Chart data |
-| GET | `/api/system/status` | System health |
-
----
-
-## Supabase PostgreSQL
-
-The backend uses PostgreSQL hosted on Supabase. To connect:
-
-1. Create a Supabase project at https://supabase.com
-2. Find your database connection string in Settings → Database
-3. Set `DATABASE_URL` in `backend/.env`
-
-```bash
-DATABASE_URL=postgresql+asyncpg://postgres:PASSWORD@db.PROJECTREF.supabase.co:5432/postgres
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 ---
 
-## Anomaly Detection
-
-Detection is **entirely deterministic** — no LLM involvement.
-
-### Thresholds
-
-| Metric | Warning | Critical |
-|---|---|---|
-| CPU Usage | ≥ 70% | ≥ 90% |
-| Memory Usage | ≥ 75% | ≥ 90% |
-| Disk Usage | ≥ 80% | ≥ 90% |
-| System Load | > cpu_count | > 2 × cpu_count |
-| Response Time | > 2000ms | > 5000ms |
-
-All thresholds configurable via environment variables.
-
-### Persistence Detection
-
-A single spike does not create an incident. The anomaly must persist for `ANOMALY_CONSECUTIVE_SAMPLES` (default: 3) consecutive observations before being marked as persistent.
-
----
-
-## Incident Correlation
-
-The correlation engine groups anomalies within `CORRELATION_WINDOW_MINUTES` (default: 5) into a single incident.
-
-### Correlation Score Weights
-
-| Metric | Weight |
-|---|---|
-| CPU Usage | +2 |
-| Memory Usage | +2 |
-| System Load | +2 |
-| Response Time | +2 |
-| Disk Usage | +1 |
-| Persistent anomaly | +1 bonus |
-
-### Deduplication
-
-Every incident gets a deterministic `incident_key`:
-```
-SHA-256(hostname + sorted(affected_metric_names))[:32]
-```
-
-If an active incident with the same key exists, it is **updated** rather than creating a new one. This prevents alert storms from the same ongoing condition.
-
----
-
-## LangGraph Workflow
-
-```
-START → collect_context → correlate → determine_severity
-     → determine_cause → recommend_action → generate_summary → END
-```
-
-| Node | Responsibility |
-|---|---|
-| `collect_context` | Validate input data completeness |
-| `correlate` | Build evidence list from anomalies and metric trends |
-| `determine_severity` | Assess severity from anomaly severities and score |
-| `determine_cause` | Call Groq LLM; fall back to rules if unavailable |
-| `recommend_action` | Populate actions from LLM or rule-based logic |
-| `generate_summary` | Compose final reasoning narrative |
-
----
-
-## Groq Integration
-
-Configure in `backend/.env`:
-
-```bash
-GROQ_API_KEY=your_groq_api_key
-GROQ_MODEL=llama-3.3-70b-versatile
-```
-
-The LLM receives structured evidence (not raw logs or entire database dumps) and returns validated JSON:
-
-```json
-{
-  "severity": "CRITICAL",
-  "affected_metrics": ["CPU", "Memory", "System Load", "Response Time"],
-  "probable_cause": "The instance is likely experiencing resource saturation...",
-  "evidence": [
-    "CPU remained above 90% for multiple consecutive observations",
-    "Memory exceeded 90%",
-    "Load increased alongside CPU usage"
-  ],
-  "recommended_actions": [
-    "Inspect top CPU and memory consuming processes",
-    "Review application logs for errors"
-  ],
-  "confidence": 0.9,
-  "reasoning_summary": "CPU, memory, load, and response-time anomalies..."
-}
-```
-
-**LLM Failure Handling:**
-1. Retry twice on transient errors (connection, rate limit)
-2. Validate output with Pydantic
-3. Fall back to deterministic rule-based analysis
-4. Incident is **always** created — monitoring never depends on LLM availability
-
----
-
-## Frontend
-
-### Setup
+## 12. Frontend Setup
 
 ```bash
 cd frontend
-
-# Install dependencies
 npm install
-
-# Configure
-cp .env.example .env
-# Set VITE_API_URL=http://localhost:8000 (or your backend URL)
-
-# Start development server
 npm run dev
 ```
 
-Open http://localhost:5173
-
-### Pages
-
-- **Dashboard** — Live status banner, metric cards, trend charts, recent incidents
-- **Metrics** — Historical charts with 15m/1h/6h/24h range selection
-- **Incidents** — Filterable incident table
-- **Incident Detail** — Full analysis with observed facts, evidence, AI reasoning, recommended actions
-
-The UI clearly separates **"Observed data"** from **"Analysis"** to prevent confusing facts with inference.
+Visit: `http://localhost:5173`
 
 ---
 
-## Environment Variables
+## 13. SSH Key Configuration
 
-### Backend (`backend/.env`)
-
-| Variable | Description | Default |
-|---|---|---|
-| `DATABASE_URL` | PostgreSQL connection string | — |
-| `GROQ_API_KEY` | Groq API key | — |
-| `GROQ_MODEL` | Groq model name | `llama-3.3-70b-versatile` |
-| `MONITORING_AGENT_API_KEY` | Shared secret for agent auth | — |
-| `CORS_ORIGINS` | Allowed CORS origins | `http://localhost:5173` |
-| `CPU_WARNING_THRESHOLD` | CPU warning threshold % | `70` |
-| `CPU_CRITICAL_THRESHOLD` | CPU critical threshold % | `90` |
-| `MEMORY_WARNING_THRESHOLD` | Memory warning % | `75` |
-| `MEMORY_CRITICAL_THRESHOLD` | Memory critical % | `90` |
-| `DISK_WARNING_THRESHOLD` | Disk warning % | `80` |
-| `DISK_CRITICAL_THRESHOLD` | Disk critical % | `90` |
-| `ANOMALY_CONSECUTIVE_SAMPLES` | Samples before persistent anomaly | `3` |
-| `CORRELATION_WINDOW_MINUTES` | Correlation time window | `5` |
-
-### Agent (`agent/.env`)
-
-| Variable | Description | Default |
-|---|---|---|
-| `BACKEND_URL` | FastAPI backend URL | `http://localhost:8000` |
-| `MONITORING_AGENT_API_KEY` | Must match backend key | — |
-| `COLLECTION_INTERVAL_SECONDS` | Metric collection interval | `30` |
-| `MONITORED_URL` | Optional URL to measure response time | — |
-| `MAX_RETRIES` | HTTP delivery retry attempts | `3` |
+1. Place your private `.pem` key file on the server running FastAPI (e.g. `ec2-monitoring-key.pem` in project root).
+2. Set `EC2_PRIVATE_KEY_PATH=ec2-monitoring-key.pem` in `backend/.env`.
+3. Ensure file permissions (on Linux: `chmod 400 ec2-monitoring-key.pem`).
+4. **NEVER commit the `.pem` file to Git** (enforced in `.gitignore`).
 
 ---
 
-## Database Migrations
+## 14. Running the System
 
+Use the convenient one-command startup scripts:
+
+### Windows:
+```cmd
+start.bat all
+```
+or PowerShell:
+```powershell
+.\start.ps1 all
+```
+
+### Linux / macOS:
 ```bash
-# Create a new migration (after model changes)
-alembic revision --autogenerate -m "description"
-
-# Apply all pending migrations
-alembic upgrade head
-
-# Roll back one migration
-alembic downgrade -1
-
-# Show current version
-alembic current
-
-# Show migration history
-alembic history
+chmod +x start.sh
+./start.sh all
 ```
 
 ---
 
-## Testing
+## 15. API Documentation
 
+Swagger UI is available at `http://localhost:8000/docs`.
+
+### Core Endpoints:
+- `GET /api/monitoring/status`: Checks EC2 reachability over SSH.
+- `GET /api/monitoring/current`: Triggers live SSH collection, evaluates anomalies, saves snapshot, returns data.
+- `POST /api/monitoring/collect`: Explicitly triggers one collection cycle.
+- `GET /api/metrics/latest`: Returns latest persisted metric snapshot.
+- `GET /api/metrics/history?range=1h`: Returns time-series data for charts (`15m`, `1h`, `6h`, `24h`).
+- `GET /api/incidents`: Lists active and historical incidents.
+- `GET /api/incidents/{id}`: Returns incident detail with evidence and analysis.
+- `POST /api/incidents/{id}/analyze`: Runs the 8-node LangGraph analysis workflow on demand.
+- `GET /api/dashboard/summary`: Summary metrics, SSH connectivity, active incident count.
+
+---
+
+## 16. Monitoring Process
+
+Every collection cycle (background or manual):
+1. Authenticates to EC2 via AsyncSSH.
+2. Runs collectors in parallel within the session.
+3. Normalizes metrics into a `UnifiedSnapshot` with Data Quality calculation.
+4. Persists `MetricSnapshot` and `ProcessSnapshot` to Supabase.
+5. Runs deterministic anomaly detector.
+6. Evaluates persistence across samples.
+7. Groups active anomalies into correlated incidents.
+8. If an incident requires analysis, invokes LangGraph with Groq.
+
+---
+
+## 17. Anomaly Detection
+
+- Evaluates CPU, Memory, Disk, System Load, and Response Time against warning and critical thresholds.
+- **Strict Rule**: When a metric is `null`, anomaly evaluation is skipped. It is **never** assumed to be normal.
+- **Persistence**: Requires `ANOMALY_CONSECUTIVE_SAMPLES` (3) before marking an anomaly as persistent high.
+- **Trend Detection**: Flags deteriorating patterns (e.g. rising CPU across consecutive observations).
+
+---
+
+## 18. Incident Correlation
+
+When multiple anomalies occur concurrently within `CORRELATION_WINDOW_MINUTES` (5 mins):
+- They are grouped into **ONE** incident.
+- Deduplication key derived from `hostname + family` prevents duplicate `INC-001`, `INC-002` spam.
+- Severity levels: `LOW`, `MEDIUM`, `HIGH`, `CRITICAL`.
+- Auto-resolves after 10 minutes of healthy operating baselines.
+
+---
+
+## 19. LangGraph Workflow
+
+The sequential 8-node LangGraph pipeline executes:
+```
+START
+  ↓
+[1] Collect Incident Context  (app/ai/nodes/context.py)
+  ↓
+[2] Validate Evidence         (app/ai/nodes/evidence.py)
+  ↓
+[3] Correlate Related Events  (app/ai/nodes/correlation.py)
+  ↓
+[4] Assess Severity           (app/ai/nodes/severity.py)
+  ↓
+[5] Determine Probable Cause  (app/ai/nodes/root_cause.py)
+  ↓
+[6] Generate Recommendations  (app/ai/nodes/recommendation.py)
+  ↓
+[7] Generate Incident Summary (app/ai/nodes/summary.py)
+  ↓
+[8] Validate Structured Output(app/ai/nodes/validation.py)
+  ↓
+END
+```
+
+---
+
+## 20. Groq Analysis
+
+- Invoked during Node 5 (`determine_root_cause`) and Node 6 (`generate_recommendations`).
+- Strict prompt instructions:
+  1. Base analysis ONLY on supplied evidence.
+  2. Never claim certainty; use "Likely", "Evidence suggests".
+  3. Output valid JSON adhering to `LLMAnalysisOutput` schema.
+- Automatic fallback: If Groq rate limits or fails, `analysis_source="rule_engine"` is activated.
+
+---
+
+## 21. Testing
+
+The comprehensive test suite covers 59 automated test cases:
 ```bash
 cd backend
-
-# Run all tests
-pytest
-
-# Run with verbose output
-pytest -v
-
-# Run specific test file
-pytest app/tests/test_anomaly_detector.py -v
-
-# Run specific test scenario
-pytest app/tests/test_anomaly_detector.py::TestResourceSaturation -v
+.\venv\Scripts\python.exe -m pytest app/tests/ -v
 ```
 
-### Test Scenarios
-
-| Scenario | Expected |
-|---|---|
-| Normal (CPU 30%, MEM 40%, DISK 45%) | No anomalies |
-| CPU spike (CPU 95%) | CRITICAL CPU anomaly |
-| Memory pressure (MEM 95%) | CRITICAL memory anomaly |
-| Resource saturation (CPU 95%, MEM 92%, Load high) | ONE CRITICAL correlated incident |
-| Disk pressure (DISK 94%) | CRITICAL disk anomaly |
-| Continuing incident (3+ cycles) | Single incident updated |
-| LLM unavailable | Rule-based fallback analysis |
+### Verified Test Categories:
+- SSH execution & failure handling.
+- Collectors parsing: CPU, Memory, Disk, Load, Processes, Network, Logs.
+- Strict null preservation: no fake zeros.
+- Data quality states: COMPLETE, PARTIAL, FAILED.
+- Anomaly persistence tracking and null skipping.
+- Incident correlation and deduplication.
+- 4-tier severity evaluation.
+- Incident lifecycle & auto-resolution.
+- LangGraph 8-node workflow with Groq fallback.
+- FastAPI REST endpoints.
 
 ---
 
-## Demo Scenario
+## 22. Stress Testing
 
-The system is designed to demonstrate this exact scenario:
+For demonstration and testing purposes, you can generate simulated resource pressure on the EC2 machine:
 
-**At 10:00 AM:**
-```
-CPU: 92%  Memory: 88%  Disk: 85%  Load: High
-```
+```bash
+# CPU Stress (2 cores for 120s)
+stress-ng --cpu 2 --timeout 120s
 
-**At 10:05 AM:**
-```
-CPU: 96%  Memory: 91%  Load: Very High  Response Time: Increased
-```
+# Memory Stress (80% of RAM for 120s)
+stress-ng --vm 1 --vm-bytes 80% --timeout 120s
 
-**Expected output:**
-```
-Severity: CRITICAL
-Affected Metrics: CPU, Memory, Disk, System Load, Response Time
-
-Probable Cause: The EC2 instance is likely experiencing resource saturation,
-potentially caused by a high-resource process or increased application workload.
-
-Evidence:
-  - CPU remained above 90% for multiple consecutive observations
-  - Memory exceeded 90% and is critically low
-  - System load increased alongside CPU usage
-  - Response time degraded during the same period
-
-Recommended Actions:
-  1. Inspect top CPU and memory consuming processes
-  2. Review application and system logs
-  3. Identify the workload responsible for resource consumption
-  4. Consider workload optimization or EC2 scaling
+# Combined Resource Saturation
+stress-ng --cpu 2 --vm 1 --vm-bytes 70% --timeout 120s
 ```
 
-The key behaviour: **ONE incident** is created and updated, not five separate CPU/Memory/Disk/Load/ResponseTime incidents.
+*Note: Stress testing tools are for demonstration only and are not part of production monitoring.*
 
 ---
 
-## Future Improvements
+## 23. Example Incident Scenario
 
-- **AWS CloudWatch integration** — ingest CloudWatch metrics alongside psutil
-- **Prometheus/Grafana** — standard metrics export endpoint
-- **WebSocket streaming** — real-time dashboard updates without polling
-- **Statistical baselines** — dynamic thresholds based on historical percentiles
-- **ML anomaly detection** — Isolation Forest or time-series models for subtle anomalies
-- **Multiple EC2 instances** — fleet-wide monitoring and cross-host correlation
-- **Alerting** — Email/Slack/PagerDuty notifications on incident creation
-- **Incident acknowledgement** — UI for engineers to acknowledge and track
-- **Authentication/RBAC** — user accounts and role-based access control
-- **Auto-remediation** — runbook execution on known incident patterns
+1. User or workload runs `stress-ng --cpu 2 --vm 1 --vm-bytes 80%`.
+2. Backend monitoring cycle connects to EC2 via SSH.
+3. Telemetry captured:
+   - CPU: 96.2% (exceeds critical threshold 90%)
+   - Memory: 91.5% (exceeds critical threshold 90%)
+   - Load (1m): 4.10 (exceeds 2x core count = 4.0)
+   - Top process: `stress-ng` (CPU: 94.0%, Mem: 45.0%)
+4. Correlation Engine correlates all 3 anomalies into **ONE** `CRITICAL` incident.
+5. LangGraph queries Groq (`qwen/qwen3.8-27b`).
+6. AI analysis returns:
+   - Probable cause: "Evidence suggests severe resource saturation likely caused by high-intensity stress testing process ('stress-ng') consuming available CPU cycles and memory allocations."
+   - Recommended actions: `ps -eo pid,comm,%cpu --sort=-%cpu`, `free -m`, `journalctl -p warning..err`.
+   - Confidence: 95%.
+   - Source: `Groq LLM (qwen/qwen3.8-27b)`.
 
 ---
 
-## Design Decisions
+## 24. Troubleshooting
 
-**Why deterministic detection, not LLM detection?**
-Threshold-based detection is fast, explainable, configurable, and works without internet access. The LLM's value is in *explaining* already-detected anomalies — not in determining whether CPU is high.
+- **SSH Connection Timeout**: Verify EC2 Security Group inbound rule allows Port 22 from your backend IP.
+- **Permission Denied (Publickey)**: Check `EC2_PRIVATE_KEY_PATH` points to the correct `.pem` key file and `EC2_USERNAME=ubuntu`.
+- **Database Connection Error**: Verify `DATABASE_URL` credentials and that Supabase allows connections.
+- **Frontend Shows "-" for Metrics**: This is the expected, correct behavior when a metric was not collected or failed. Check collector status via `GET /api/monitoring/current`.
 
-**Why correlation before AI analysis?**
-Correlating first means the LLM receives a single, coherent set of evidence rather than being called repeatedly for each individual metric alert. This reduces cost, latency, and API calls.
+---
 
-**Why LangGraph instead of a single LLM call?**
-LangGraph allows each step to be tested, replaced, or enhanced independently. The severity assessment node can apply deterministic rules before the LLM is called. The summary node can produce a fallback if the LLM fails. This is far more robust than one monolithic prompt.
+## 25. Security Considerations
 
-**Why Supabase PostgreSQL?**
-Standard PostgreSQL with zero additional complexity. Supabase adds a managed database UI and real-time capabilities that are useful for future extensions. The code is completely database-agnostic within SQLAlchemy.
+- **Server-Side Key Storage**: Private keys never leave the backend. Frontend has zero SSH access.
+- **Command Allowlist**: Only pre-compiled diagnostic commands are run. No user-supplied shell input is executed.
+- **Safe Error Messages**: Internal stack traces and database credentials are not exposed in API responses.
+- **Git Protection**: `.gitignore` strictly blocks `*.pem`, `.env`, and secret keys.
+
+---
+
+## 26. Future Improvements
+
+- Multi-host EC2 inventory monitoring.
+- CloudWatch metric cross-correlation.
+- Webhook notifications (Slack, PagerDuty).
+- Automated remediation playbooks over SSH (with human-in-the-loop confirmation).

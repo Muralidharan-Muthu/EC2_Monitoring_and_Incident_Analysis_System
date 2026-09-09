@@ -1,20 +1,25 @@
 /**
  * TypeScript type definitions for metric-related data.
+ * Strictly supports nullable metrics.
  */
 
 export interface Metric {
   id: string;
   hostname: string;
   timestamp: string;
-  cpu_usage: number;
-  memory_usage: number;
-  disk_usage: number;
-  load_1m: number;
-  load_5m: number;
-  load_15m: number;
-  cpu_count: number;
+  cpu_usage: number | null;
+  cpu_count: number | null;
+  memory_usage: number | null;
+  memory_total_mb: number | null;
+  memory_used_mb: number | null;
   memory_available_mb: number | null;
+  disk_usage: number | null;
+  disk_total_gb: number | null;
+  disk_used_gb: number | null;
   disk_free_gb: number | null;
+  load_1m: number | null;
+  load_5m: number | null;
+  load_15m: number | null;
   network_rx_bytes: number | null;
   network_tx_bytes: number | null;
   response_time_ms: number | null;
@@ -40,15 +45,17 @@ export interface TimeSeriesResponse {
 }
 
 export interface DashboardSummary {
-  system_status: 'HEALTHY' | 'DEGRADED' | 'CRITICAL';
+  system_status: 'HEALTHY' | 'DEGRADED' | 'CRITICAL' | 'CONNECTED' | 'UNAVAILABLE' | string;
   active_incident_count: number;
-  highest_severity: 'WARNING' | 'CRITICAL' | null;
+  highest_severity: 'LOW' | 'MEDIUM' | 'HIGH' | 'WARNING' | 'CRITICAL' | string | null;
   latest_cpu: number | null;
   latest_memory: number | null;
   latest_disk: number | null;
   latest_load_1m: number | null;
+  latest_response_time_ms?: number | null;
   hostname: string | null;
   last_metric_at: string | null;
+  ssh_status?: 'CONNECTED' | 'DEGRADED' | 'UNAVAILABLE' | string;
 }
 
 export interface SystemStatus {

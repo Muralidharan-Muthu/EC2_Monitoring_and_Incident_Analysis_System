@@ -43,10 +43,10 @@ class LLMAnalysisOutput(BaseModel):
     @field_validator("severity")
     @classmethod
     def validate_severity(cls, v: str) -> str:
-        allowed = {"WARNING", "CRITICAL", "NORMAL"}
+        allowed = {"LOW", "MEDIUM", "HIGH", "CRITICAL", "WARNING", "NORMAL"}
         upper = v.upper()
         if upper not in allowed:
-            return "WARNING"  # Safe default rather than raising
+            return "MEDIUM"
         return upper
 
     @field_validator("affected_metrics", "evidence", "recommended_actions", mode="before")
@@ -69,8 +69,10 @@ class DashboardSummary(BaseModel):
     latest_memory: Optional[float]
     latest_disk: Optional[float]
     latest_load_1m: Optional[float]
+    latest_response_time_ms: Optional[float] = None
     hostname: Optional[str]
     last_metric_at: Optional[str]
+    ssh_status: Optional[str] = "CONNECTED"
 
 
 class TimeSeriesPoint(BaseModel):

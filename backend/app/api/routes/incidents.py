@@ -235,7 +235,7 @@ async def analyze_incident(
         evidence=final_state.get("evidence", []),
         recommended_actions=final_state.get("recommended_actions", []),
         reasoning_summary=final_state.get("reasoning_summary", ""),
-        analysis_source=final_state.get("analysis_source", "rule_based"),
+        analysis_source=final_state.get("analysis_source", "rule_engine"),
         model_name=final_state.get("model_name"),
         confidence=final_state.get("confidence"),
         raw_llm_response=final_state.get("raw_llm_output"),
@@ -243,7 +243,7 @@ async def analyze_incident(
     await incident_repo.save_analysis(analysis)
 
     # Update incident with analysis metadata
-    incident.llm_analyzed = final_state.get("analysis_source") == "llm"
+    incident.llm_analyzed = final_state.get("analysis_source") in ("llm", "groq")
     incident.llm_confidence = final_state.get("confidence")
     if final_state.get("probable_cause"):
         incident.probable_cause = final_state["probable_cause"]

@@ -38,18 +38,22 @@ class Metric(Base):
     hostname: Mapped[str] = mapped_column(String(255), nullable=False)
     timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
-    # Core metrics
-    cpu_usage: Mapped[float] = mapped_column(Float, nullable=False)
-    memory_usage: Mapped[float] = mapped_column(Float, nullable=False)
-    disk_usage: Mapped[float] = mapped_column(Float, nullable=False)
-    load_1m: Mapped[float] = mapped_column(Float, nullable=False)
-    load_5m: Mapped[float] = mapped_column(Float, nullable=False)
-    load_15m: Mapped[float] = mapped_column(Float, nullable=False)
+    # Core metrics (nullable — missing value means failure to collect, NOT 0.0)
+    cpu_usage: Mapped[float | None] = mapped_column(Float, nullable=True)
+    memory_usage: Mapped[float | None] = mapped_column(Float, nullable=True)
+    disk_usage: Mapped[float | None] = mapped_column(Float, nullable=True)
+    load_1m: Mapped[float | None] = mapped_column(Float, nullable=True)
+    load_5m: Mapped[float | None] = mapped_column(Float, nullable=True)
+    load_15m: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     # Supporting information
-    cpu_count: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
-    memory_available_mb: Mapped[float] = mapped_column(Float, nullable=True)
-    disk_free_gb: Mapped[float] = mapped_column(Float, nullable=True)
+    cpu_count: Mapped[int | None] = mapped_column(Integer, nullable=True, default=None)
+    memory_total_mb: Mapped[float | None] = mapped_column(Float, nullable=True)
+    memory_used_mb: Mapped[float | None] = mapped_column(Float, nullable=True)
+    memory_available_mb: Mapped[float | None] = mapped_column(Float, nullable=True)
+    disk_total_gb: Mapped[float | None] = mapped_column(Float, nullable=True)
+    disk_used_gb: Mapped[float | None] = mapped_column(Float, nullable=True)
+    disk_free_gb: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     # Network statistics
     network_rx_bytes: Mapped[int] = mapped_column(BigInteger, nullable=True)
@@ -125,3 +129,7 @@ class ProcessSnapshot(Base):
             f"<ProcessSnapshot process={self.process_name} "
             f"cpu={self.cpu_percent}% mem={self.memory_percent}%>"
         )
+
+
+# Aliases for specification compatibility
+MetricSnapshot = Metric

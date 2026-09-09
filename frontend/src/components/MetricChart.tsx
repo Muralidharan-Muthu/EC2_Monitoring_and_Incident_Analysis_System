@@ -1,5 +1,6 @@
 /**
  * MetricChart — time-series line chart for a single metric using Recharts.
+ * Preserves null values without converting to zero or drawing fake lines.
  */
 
 import React from 'react';
@@ -27,8 +28,12 @@ interface MetricChartProps {
 }
 
 function formatTimestamp(ts: string): string {
-  const d = new Date(ts);
-  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  try {
+    const d = new Date(ts);
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  } catch {
+    return '';
+  }
 }
 
 export const MetricChart: React.FC<MetricChartProps> = ({
@@ -44,6 +49,7 @@ export const MetricChart: React.FC<MetricChartProps> = ({
   if (!data || data.length === 0) {
     return (
       <div className="chart-container chart-empty">
+        <h4 className="chart-title">{label}</h4>
         <p className="empty-text">No data available</p>
       </div>
     );
@@ -51,7 +57,7 @@ export const MetricChart: React.FC<MetricChartProps> = ({
 
   const chartData = data.map((point) => ({
     timestamp: formatTimestamp(point.timestamp),
-    value: point[dataKey] as number | null,
+    value: point[dataKey] != null ? Number(point[dataKey]) : null,
   }));
 
   return (
@@ -71,7 +77,10 @@ export const MetricChart: React.FC<MetricChartProps> = ({
             tickFormatter={(v) => `${v}${unit}`}
           />
           <Tooltip
-            formatter={(value: number) => [`${value?.toFixed(1)}${unit}`, label]}
+            formatter={(value: any) => [
+              value != null ? `${Number(value).toFixed(1)}${unit}` : '-',
+              label,
+            ]}
             labelStyle={{ color: '#374151' }}
             contentStyle={{
               background: '#fff',

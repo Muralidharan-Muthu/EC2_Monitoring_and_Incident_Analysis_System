@@ -1,214 +1,112 @@
-# Architecture Documentation
+# EC2 Monitoring and Incident Analysis System — Architecture
 
-## EC2 Monitoring and Incident Analysis System
+## 1. High-Level Architecture Overview
 
-![Architecture Diagram](./architecture.png)
-
----
-
-## System Overview
-
-The EC2 Monitoring and Incident Analysis System is composed of four distinct layers, each with a single well-defined responsibility:
-
-| Layer | Component | Responsibility |
-|---|---|---|
-| Collection | Python Monitoring Agent | Gather raw system metrics from Linux |
-| Detection | Rule-Based Anomaly Detector | Determine threshold violations deterministically |
-| Correlation | Correlation Engine | Group related anomalies into incidents |
-| Reasoning | LangGraph + Groq LLM | Generate human-readable explanations |
-| Presentation | React Dashboard | Display live data and incident analysis |
-
----
-
-## Why Separate Collection, Detection, Correlation, and AI Analysis?
-
-### Collection is separate from detection
-The monitoring agent's only job is to faithfully report what the system is doing. It does not make any judgement about whether values are abnormal. This separation means:
-- The agent can be replaced or rewritten without touching the detection logic.
-- Detection thresholds can be changed in the backend without redeploying the agent.
-- The agent remains simple and resilient.
-
-### Detection is separate from correlation
-A single high CPU reading is not necessarily an incident. The detector finds individual threshold violations; the correlation engine decides whether multiple violations across a time window constitute a single compound event.
-
-This prevents alert storms — a classic problem where monitoring systems fire one alert per anomalous metric, flooding on-call engineers with dozens of notifications for a single root cause.
-
-### Correlation is separate from AI reasoning
-The correlation engine applies deterministic, auditable rules:
-- Time-window proximity
-- Weighted metric scoring
-- Incident deduplication by key
-
-This produces a structured evidence set. The AI layer receives this evidence and produces a human-readable explanation. If the LLM is unavailable, the deterministic analysis is already complete — monitoring never depends on the LLM.
-
-### AI reasoning is separate from presentation
-The React dashboard displays whatever analysis is available — LLM-generated or rule-based — without embedding any business logic.
-
----
-
-## Component Descriptions
-
-### Python Monitoring Agent
-
-Runs **on the EC2 Linux instance**. Collects system metrics using:
-- `psutil` — cross-platform CPU, memory, disk, network, process information
-- `/proc` filesystem — Linux-specific kernel metrics
-- `subprocess` with an explicit allowlist — safe execution of `journalctl` for log inspection
-
-Sends a structured JSON payload to the FastAPI backend every N seconds (configurable). Retries on network failure. Never crashes due to a single collector failing.
-
-### FastAPI Backend
-
-The central hub. Responsibilities:
-1. **Metric ingestion** — validate and persist incoming agent payloads
-2. **Anomaly detection** — immediately after ingestion, runs rule-based checks
-3. **Incident management** — correlates anomalies, deduplicates incidents, manages lifecycle
-4. **LangGraph orchestration** — on demand, runs the AI analysis workflow
-5. **REST API** — serves data to the React frontend
-
-Uses async SQLAlchemy with PostgreSQL for all database operations.
-
-### Rule-Based Anomaly Detector
+The EC2 Monitoring and Incident Analysis System operates as an **agentless, remote monitoring and incident analysis platform**. Unlike traditional monitoring systems that require permanently running daemon agents installed on monitored instances, this system connects remotely to the AWS EC2 instance over **SSH** from the FastAPI backend, executes native Linux commands, parses real telemetry, detects anomalies deterministically, correlates multi-metric saturation events, and performs multi-stage incident reasoning enhanced by an 8-node **LangGraph** workflow powered by **Groq (`qwen/qwen3.8-27b`)**.
 
 ```
-Metric Value → Threshold Check → Severity (WARNING | CRITICAL)
-                              → Persistence Check (N consecutive samples)
-                              → DetectedAnomaly
-```
-
-Thresholds are configurable via environment variables. Persistence state is tracked in-memory per (hostname, metric_name) pair.
-
-### Correlation Engine
-
-```
-[Anomaly_1, Anomaly_2, Anomaly_3] within time window
-    → compute_incident_key (SHA-256 of hostname + sorted metrics)
-    → compute_correlation_score (weighted sum)
-    → determine_severity (worst of constituent anomalies)
-    → build_incident_title
-    → generate_rule_based_cause (pattern matching)
-    → generate_rule_based_recommendation
-```
-
-The `incident_key` ensures that the same set of failing metrics always maps to the same incident, preventing duplicates.
-
-### LangGraph Workflow
-
-6-node directed acyclic graph:
-
-```
-START
-  ↓
-collect_context     — Validate input data is present
-  ↓
-correlate           — Build evidence list from anomalies and metrics
-  ↓
-determine_severity  — Assess severity from anomaly severities and score
-  ↓
-determine_cause     — Call Groq LLM; fall back to rule-based if unavailable
-  ↓
-recommend_action    — Ensure recommendations are populated
-  ↓
-generate_summary    — Compose final reasoning narrative
-  ↓
-END
-```
-
-### Groq LLM Integration
-
-- Model: configurable via `GROQ_MODEL` environment variable
-- Used for: reasoning and human-readable explanation
-- NOT used for: threshold detection, persistence detection, severity determination, incident deduplication
-- Failure handling: 2 retries → rule-based fallback
-- Output validation: Pydantic `LLMAnalysisOutput` schema
-
-### Supabase PostgreSQL
-
-Standard PostgreSQL hosted on Supabase. The system uses SQLAlchemy ORM and treats Supabase as managed PostgreSQL with no Supabase-specific features.
-
-Schema:
-```
-metrics
-  └── process_snapshots (many per metric)
-  └── anomalies (many per metric)
-        └── incident_anomalies (M:M join)
-              └── incidents
-                    └── incident_analyses (1:1)
-```
-
-### React Dashboard
-
-- **Dashboard** — live system status, metric cards, trend charts, recent incidents
-- **Metrics** — historical charts with time range selection (15m / 1h / 6h / 24h)
-- **Incidents** — filterable incident list
-- **Incident Detail** — full analysis with observed facts, AI reasoning, and recommended actions
-
-Auto-refreshes every 10 seconds (configurable via `VITE_POLL_INTERVAL_MS`).
-
----
-
-## Data Flow
-
-```
-EC2 Linux Instance
-        │
-        │ (every 30 seconds)
-        ↓
-Python Agent collects:
-  cpu_usage, memory_usage, disk_usage, load_*,
-  top_cpu_process, top_memory_process, network_*
-        │
-        │ HTTP POST /api/metrics
-        │ Header: X-API-Key
-        ↓
-FastAPI /api/metrics route
-        │
-        ├─→ Persist Metric record
-        ├─→ Persist ProcessSnapshot records
-        ├─→ AnomalyDetector.detect_anomalies()
-        │        └─→ Persist Anomaly records
-        └─→ IncidentService.process_anomalies()
-                 ├─→ Compute incident_key
-                 ├─→ Lookup existing active incident
-                 ├─→ Create or update Incident
-                 └─→ Link Anomalies to Incident
-                          │
-                          │ (on demand: POST /api/incidents/{id}/analyze)
-                          ↓
-                 LangGraph.run_incident_analysis()
-                          │
-                          ├─→ collect_context node
-                          ├─→ correlate node
-                          ├─→ determine_severity node
-                          ├─→ determine_cause node → Groq LLM
-                          ├─→ recommend_action node
-                          └─→ generate_summary node
-                                   │
-                                   ↓
-                          IncidentAnalysis persisted
-                                   │
-                                   │ React polls every 10s
-                                   ↓
-                          Dashboard renders analysis
+React Frontend (Vite + TS)
+        |
+        | HTTP REST (/api/...)
+        v
+FastAPI Backend
+        |
+        +--- AsyncSSH (Server-side private key authentication)
+        |       |
+        |       v
+        |    AWS EC2 Ubuntu Instance
+        |    +-----------------------------------------------+
+        |    | Safe Linux Telemetry Commands                 |
+        |    | - CPU: mpstat 1 1, nproc, /proc/stat          |
+        |    | - Memory: free -m                             |
+        |    | - Disk: df -P /                               |
+        |    | - Load: cat /proc/loadavg                     |
+        |    | - Processes: ps -eo pid,comm,%cpu,%mem        |
+        |    | - Network: cat /proc/net/dev                  |
+        |    | - Logs: journalctl -p warning..err -n 20      |
+        |    | - System: hostname, uname -r, /etc/os-release |
+        |    +-----------------------------------------------+
+        |
+        +---> PostgreSQL (Supabase schema: ec2_monitoring_working)
+        |
+        +---> Metric Normalizer & Strict Null Safety (No fake zeros)
+        |
+        +---> Deterministic Anomaly Detector (Warning & Critical thresholds)
+        |
+        +---> Anomaly Persistence Tracker (Consecutive violations filter)
+        |
+        +---> Incident Correlation Engine (Temporal + Semantic correlation)
+        |
+        +---> Incident Lifecycle Manager (OPEN -> INVESTIGATING -> RESOLVED)
+        |
+        +---> 8-Node LangGraph Pipeline
+        |       |
+        |       v
+        |    Groq LLM (qwen/qwen3.8-27b) [With Rule Engine Fallback]
+        |
+        v
+Structured Incident Analysis & UI Telemetry
 ```
 
 ---
 
-## Security Considerations
+## 2. Component Breakdown
 
-- All credentials in environment variables, never in code
-- API key validation on the `/api/metrics` ingestion endpoint
-- CORS configured to specific frontend origins
-- Input validation via Pydantic on all API endpoints
-- No secrets logged or exposed in error messages
-- Supabase connection uses SSL by default
+### 2.1 SSH Client & Execution Engine (`app/ssh/`)
+- **Library**: `asyncssh` for non-blocking asynchronous SSH connections matching FastAPI's async event loop.
+- **Connection Reuse**: During a single collection cycle, a single authenticated SSH session is opened via `async with client.session() as session:`. All 8 collectors execute within this session, reducing round-trip latency from ~12s down to ~1.5s.
+- **Command Allowlist**: Strict command allowlist validation in `app/ssh/executor.py` prevents arbitrary command injection or dangerous tokens (`rm`, `reboot`, `sudo`, `curl`, pipes to bash).
+- **Result Structure**: All command results return `CommandResult` containing stdout, stderr, exit code, execution duration, and success flag.
 
----
+### 2.2 Remote Linux Telemetry Collectors (`app/collectors/`)
+Each collector operates independently and adheres to the **Strict Nullability Rule**:
+1. **CPU Collector (`cpu.py`)**: Executes `mpstat 1 1` for instantaneous CPU utilization and `nproc` for cores. Falls back to `/proc/stat`. On failure, returns `cpu_usage: null` (never `0.0`).
+2. **Memory Collector (`memory.py`)**: Executes `free -m`. Computes percentage as `((total - available) / total) * 100`. Returns MB breakdown.
+3. **Disk Collector (`disk.py`)**: Executes `df -P /` using standard POSIX block sizes. Returns usage % and GB totals.
+4. **System Load Collector (`load.py`)**: Parses `/proc/loadavg` for 1m, 5m, and 15m load averages.
+5. **Process Collector (`process.py`)**: Executes `ps -eo pid,comm,%cpu,%mem --sort=-%cpu | head -n 11` and `--sort=-%mem | head -n 11`. Merges and returns structured processes without fabricating data.
+6. **Network Collector (`network.py`)**: Reads `/proc/net/dev`, sums received and transmitted bytes across non-loopback interfaces (eth0, ens5), ignoring `lo`.
+7. **Log Collector (`logs.py`)**: Executes `journalctl -p warning..err -n 20 --no-pager`. Gracefully handles permission issues as `permission_denied` without assuming "no errors".
+8. **System Info Collector (`system.py`)**: Gathers hostname, kernel version (`uname -r`), and OS release (`/etc/os-release`).
+9. **Response Time Collector (`response_time.py`)**: Probes `MONITORED_URL` via HTTP. If unconfigured, marks monitor as `disabled` with `null` metrics without raising alerts.
 
-## Scalability Notes
+### 2.3 Metric Normalization & Data Quality (`app/monitoring/`)
+- Aggregates raw collector outputs into a `UnifiedSnapshot`.
+- Calculates Data Quality:
+  - `COMPLETE`: All critical collectors succeeded.
+  - `PARTIAL`: Some collectors succeeded, some failed.
+  - `FAILED`: Connection could not be established.
+- Strictly preserves `null` for unmeasured data across database, schemas, and API.
 
-The current architecture is designed for a single EC2 instance demonstration. For production use with multiple instances:
-- The monitoring agent would report `hostname` allowing per-host incident tracking
-- The correlation engine already namespaces by `hostname`
-- PostgreSQL partitioning by `timestamp` would improve query performance at scale
-- See README Future Improvements for the full list
+### 2.4 Anomaly Detection & Persistence (`app/anomaly/`)
+- Deterministic rules compare actual measured metrics against configurable thresholds.
+- **Null Safety**: If `cpu_usage is null`, evaluation is skipped. It is **NOT** classified as normal.
+- **Persistence Tracking**: Transient spikes do not trigger critical alerts. Requires `ANOMALY_CONSECUTIVE_SAMPLES` (default 3) before flagging as persistent.
+- **Trend Detection**: Flags deteriorating trends (e.g. 80% -> 85% -> 90% -> 95%).
+
+### 2.5 Incident Correlation & Lifecycle (`app/incidents/`)
+- Correlates multi-metric anomalies occurring within `CORRELATION_WINDOW_MINUTES` (5 mins) into **ONE** incident instead of multiple isolated alerts.
+- **Deduplication Key**: Generated from host + incident family (e.g. `resource_saturation`). Prevents creating duplicate `INC-002`, `INC-003` records for continuing conditions.
+- **Severity**: 4 tiers: `LOW`, `MEDIUM`, `HIGH`, `CRITICAL`.
+- **Lifecycle**: Automatically transitions to `RESOLVED` when the host returns to healthy baselines for the recovery period.
+
+### 2.6 8-Node LangGraph Incident Analysis Workflow (`app/ai/`)
+1. `collect_incident_context`: Compiles incident data, metrics, anomalies, process evidence, and logs.
+2. `validate_evidence`: Formulates factual, observed evidence points (distinguished from inference).
+3. `correlate_events`: Quantifies multi-metric saturation score and affected subsystems.
+4. `assess_severity`: Evaluates 4-tier severity and deterministic findings.
+5. `determine_root_cause`: Queries Groq LLM (`qwen/qwen3.8-27b`) with evidence constraints. Falls back to deterministic rule engine if Groq is unavailable.
+6. `generate_recommendations`: Produces actionable Linux troubleshooting commands.
+7. `generate_incident_summary`: Synthesizes concise reasoning summary and narrative.
+8. `validate_structured_output`: Validates final payload against Pydantic schema (`LLMAnalysisOutput`).
+
+### 2.7 Supabase PostgreSQL Storage (`app/models/`)
+- Direct connection via async SQLAlchemy + asyncpg to `db.zgohttvynajravzciame.supabase.co:5432`.
+- Schema: `ec2_monitoring_working`.
+- Nullable metric columns ensure reality is preserved.
+
+### 2.8 React Frontend (`frontend/src/`)
+- Clean, status-focused, minimal dark/light interface.
+- Format helper `formatMetric(val, suffix)` renders `null` / `undefined` as `"-"`.
+- Charts with `connectNulls={false}` to avoid drawing fake zero lines.
+- Manual "Collect Now" button + automatic 10-second polling.

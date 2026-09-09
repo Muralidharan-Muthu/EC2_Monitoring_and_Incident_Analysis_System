@@ -1,23 +1,23 @@
 <#
 .SYNOPSIS
-    EC2 Monitoring and Incident Analysis System - Startup Script
+    EC2 Monitoring and Incident Analysis System - Startup Script (PowerShell)
 .DESCRIPTION
-    Launches Backend, Frontend, and Monitoring Agent.
+    Launches Backend (FastAPI with automated SSH monitoring) and Frontend (React/Vite).
 .PARAMETER Mode
-    setup, dev, backend, frontend, agent, all (default)
+    setup, dev, backend, frontend, test, all (default)
 #>
 param(
-    [ValidateSet("all", "dev", "backend", "frontend", "agent", "setup")]
+    [ValidateSet("all", "dev", "backend", "frontend", "test", "setup")]
     [string]$Mode = "all"
 )
 
 $RootDir = $PSScriptRoot
 $BackendDir = Join-Path $RootDir "backend"
 $FrontendDir = Join-Path $RootDir "frontend"
-$AgentDir = Join-Path $RootDir "agent"
 
 Write-Host "==================================================================" -ForegroundColor Magenta
 Write-Host "      EC2 Monitoring and Incident Analysis System                 " -ForegroundColor Magenta
+Write-Host "      (Agentless SSH-Based Remote EC2 Telemetry)                  " -ForegroundColor Cyan
 Write-Host "==================================================================" -ForegroundColor Magenta
 Write-Host ""
 
@@ -29,10 +29,6 @@ function Ensure-EnvFiles {
     if (-not (Test-Path (Join-Path $FrontendDir ".env"))) {
         Write-Host "[INFO] Copying frontend\.env.example to frontend\.env" -ForegroundColor Cyan
         Copy-Item (Join-Path $FrontendDir ".env.example") (Join-Path $FrontendDir ".env")
-    }
-    if (-not (Test-Path (Join-Path $AgentDir ".env"))) {
-        Write-Host "[INFO] Copying agent\.env.example to agent\.env" -ForegroundColor Cyan
-        Copy-Item (Join-Path $AgentDir ".env.example") (Join-Path $AgentDir ".env")
     }
 }
 
@@ -50,43 +46,37 @@ switch ($Mode) {
         Set-Location $FrontendDir
         if (-not (Test-Path "node_modules")) { npm install }
 
-        Write-Host "[INFO] Setting up Agent..." -ForegroundColor Cyan
-        Set-Location $AgentDir
-        if (-not (Test-Path "venv")) { python -m venv venv }
-        .\venv\Scripts\python.exe -m pip install -q -r requirements.txt
-
         Set-Location $RootDir
         Write-Host "[SUCCESS] Setup complete!" -ForegroundColor Green
     }
     "backend" {
+        Write-Host "[INFO] Starting Backend..." -ForegroundColor Cyan
         Set-Location $BackendDir
-        .\venv\Scripts\python.exe -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+        .\venv\Scripts\uvicorn.exe app.main:app --host 0.0.0.0 --port 8000 --reload
     }
     "frontend" {
+        Write-Host "[INFO] Starting Frontend..." -ForegroundColor Cyan
         Set-Location $FrontendDir
         npm run dev
     }
-    "agent" {
-        Set-Location $AgentDir
-        .\venv\Scripts\python.exe monitor_agent.py
+    "test" {
+        Write-Host "[INFO] Running full test suite..." -ForegroundColor Cyan
+        Set-Location $BackendDir
+        .\venv\Scripts\python.exe -m pytest app/tests/ -v
     }
-    "dev" {
-        Write-Host "[INFO] Starting Backend and Frontend in separate windows..." -ForegroundColor Cyan
-        Start-Process powershell -ArgumentList "-NoExit", "-Command", "Set-Location '$BackendDir'; .\venv\Scripts\python.exe -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
-        Start-Process powershell -ArgumentList "-NoExit", "-Command", "Set-Location '$FrontendDir'; npm run dev"
-        Write-Host "[SUCCESS] Dev servers launched!" -ForegroundColor Green
-        Write-Host "  - Backend:  http://localhost:8000"
-        Write-Host "  - Frontend: http://localhost:5173"
-    }
-    "all" {
-        Write-Host "[INFO] Starting Backend, Frontend, and Agent in separate windows..." -ForegroundColor Cyan
-        Start-Process powershell -ArgumentList "-NoExit", "-Command", "Set-Location '$BackendDir'; .\venv\Scripts\python.exe -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
-        Start-Process powershell -ArgumentList "-NoExit", "-Command", "Set-Location '$FrontendDir'; npm run dev"
-        Start-Sleep -Seconds 3
-        Start-Process powershell -ArgumentList "-NoExit", "-Command", "Set-Location '$AgentDir'; .\venv\Scripts\python.exe monitor_agent.py"
-        Write-Host "[SUCCESS] All services launched!" -ForegroundColor Green
-        Write-Host "  - Backend:  http://localhost:8000"
-        Write-Host "  - Frontend: http://localhost:5173"
-        Write-Host "  - Agent:    Running in separate PowerShell window"
+    default {
+        # 'all' or 'dev'
+        Write-Host "[INFO] Launching FastAPI Backend and React Frontend in separate windows..." -ForegroundColor Cyan
+        Start-Process wt -ArgumentList "-w 0 new-tab -d `"$BackendDir`" powershell -NoExit -Command `".\venv\Scripts\activate.ps1; uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload`"" -ErrorAction SilentlyContinue
+        if ($LASTEXITCODE -ne 0) {
+            Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd `"$BackendDir`"; .\venv\Scripts\activate.ps1; uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+            Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd `"$FrontendDir`"; npm run dev"
+        } else {
+            Start-Process wt -ArgumentList "-w 0 new-tab -d `"$FrontendDir`" powershell -NoExit -Command `"npm run dev`""
+        }
+        Write-Host "[SUCCESS] Services launched:" -ForegroundColor Green
+        Write-Host "  - Backend API:  http://localhost:8000" -ForegroundColor White
+        Write-Host "  - Frontend UI:  http://localhost:5173" -ForegroundColor White
+        Write-Host "  - Swagger Docs: http://localhost:8000/docs" -ForegroundColor White
     }
 }

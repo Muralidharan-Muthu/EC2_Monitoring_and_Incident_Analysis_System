@@ -12,6 +12,9 @@ sqlalchemy[asyncio]==2.0.36
 asyncpg==0.30.0
 alembic==1.14.0
 
+# SSH Client for remote EC2 monitoring
+asyncssh>=2.24.0
+
 # HTTP client
 httpx==0.28.1
 

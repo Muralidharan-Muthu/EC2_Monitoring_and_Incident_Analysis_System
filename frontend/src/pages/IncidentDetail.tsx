@@ -6,6 +6,7 @@ import React from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useIncidentDetail } from '../hooks/useIncidents';
 import { SeverityBadge } from '../components/SeverityBadge';
+import { IncidentTimeline } from '../components/IncidentTimeline';
 
 function formatDuration(startedAt: string, endedAt?: string | null): string {
   const start = new Date(startedAt).getTime();
@@ -91,26 +92,14 @@ export const IncidentDetail: React.FC = () => {
           {/* Timeline */}
           <section className="detail-section" aria-label="Timeline">
             <h2 className="section-title">Timeline</h2>
-            <div className="timeline" id="incident-timeline">
-              <div className="timeline-item">
-                <div className="timeline-label">Started</div>
-                <div className="timeline-value">{formatDateTime(incident.started_at)}</div>
-              </div>
-              {incident.ended_at && (
-                <div className="timeline-item">
-                  <div className="timeline-label">Resolved</div>
-                  <div className="timeline-value">{formatDateTime(incident.ended_at)}</div>
-                </div>
-              )}
-              <div className="timeline-item">
-                <div className="timeline-label">Observations</div>
-                <div className="timeline-value">{incident.observation_count} monitoring cycles</div>
-              </div>
-              <div className="timeline-item">
-                <div className="timeline-label">Correlation Score</div>
-                <div className="timeline-value">{incident.correlation_score.toFixed(1)}</div>
-              </div>
-            </div>
+            <IncidentTimeline
+              startedAt={incident.started_at}
+              lastSeenAt={incident.last_seen_at || incident.started_at}
+              endedAt={incident.ended_at}
+              status={incident.status}
+              anomalies={incident.anomalies}
+              analyzedAt={analysis?.generated_at}
+            />
           </section>
 
           {/* Affected Metrics */}
@@ -158,7 +147,7 @@ export const IncidentDetail: React.FC = () => {
           <section className="detail-section" aria-label="Analysis">
             <div className="section-header-row">
               <h2 className="section-title">
-                {analysis?.analysis_source === 'llm' ? '🤖 AI Analysis' : 'Rule-Based Analysis'}
+                {(analysis?.analysis_source === 'llm' || analysis?.analysis_source === 'groq') ? '🤖 LangGraph + Groq Analysis' : 'Deterministic Rule Analysis'}
               </h2>
               <button
                 id="trigger-analysis-btn"
@@ -166,13 +155,13 @@ export const IncidentDetail: React.FC = () => {
                 onClick={triggerAnalysis}
                 disabled={analyzing}
               >
-                {analyzing ? 'Analyzing...' : incident.llm_analyzed ? 'Re-analyze' : 'Run AI Analysis'}
+                {analyzing ? 'Analyzing...' : incident.llm_analyzed ? 'Re-run LangGraph Analysis' : 'Run LangGraph AI Analysis'}
               </button>
             </div>
 
-            {analysis?.analysis_source === 'llm' && (
+            {(analysis?.analysis_source === 'llm' || analysis?.analysis_source === 'groq') && (
               <div className="ai-badge-full">
-                AI Analysis · Model: {analysis.model_name || 'Groq LLM'}
+                LangGraph + Groq · Model: {analysis.model_name || 'qwen/qwen3.8-27b'}
                 {analysis.confidence != null && (
                   <span className="confidence">
                     · Confidence: {(analysis.confidence * 100).toFixed(0)}%
