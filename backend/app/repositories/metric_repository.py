@@ -45,6 +45,14 @@ class MetricRepository:
         result = await self.db.execute(q)
         return result.scalar_one_or_none()
 
+    async def get_latest_valid(self, hostname: Optional[str] = None) -> Optional[Metric]:
+        """Return the most recent metric record with non-null cpu_usage."""
+        q = select(Metric).where(Metric.cpu_usage.isnot(None)).order_by(desc(Metric.timestamp)).limit(1)
+        if hostname:
+            q = q.where(Metric.hostname == hostname)
+        result = await self.db.execute(q)
+        return result.scalar_one_or_none()
+
     async def get_history(
         self,
         hostname: Optional[str] = None,

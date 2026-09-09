@@ -21,6 +21,17 @@ export interface MonitoringResponse<T> {
   error: { code: string; message: string } | null;
 }
 
+export interface EC2Instance {
+  instance_id: string;
+  name: string;
+  instance_type: string;
+  public_dns: string;
+  public_ip: string;
+  state: string;
+  region: string;
+  launch_time: string | null;
+}
+
 export const monitoringApi = {
   getStatus: async (): Promise<MonitoringResponse<SSHStatusData>> => {
     const response = await api.get<MonitoringResponse<SSHStatusData>>('/monitoring/status');
@@ -41,6 +52,24 @@ export const monitoringApi = {
     const response = await api.post<{ success: boolean; message?: string; error?: any }>('/monitoring/reset-database');
     return response.data;
   },
+
+  configureHost: async (payload: { host: string; username?: string; port?: number }): Promise<any> => {
+    const response = await api.post<any>('/monitoring/configure-host', payload);
+    return response.data;
+  },
+
+  /** Fetch all running EC2 instances from AWS via boto3 */
+  discoverInstances: async (): Promise<{ success: boolean; instances: EC2Instance[]; count: number; region?: string; error?: any }> => {
+    const response = await api.get('/monitoring/discover-instances');
+    return response.data;
+  },
+
+  /** Auto-discover first running instance, connect via SSH, and ingest metrics */
+  autoConnect: async (): Promise<any> => {
+    const response = await api.post('/monitoring/auto-connect');
+    return response.data;
+  },
 };
 
 export default monitoringApi;
+

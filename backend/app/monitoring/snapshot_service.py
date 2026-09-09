@@ -36,6 +36,16 @@ async def record_snapshot_cycle(
     collector = get_collector_service()
     snapshot: UnifiedSnapshot = await collector.collect_snapshot()
 
+    # If SSH collection completely failed (e.g. EC2 host down, timeout, port unreachable):
+    # Skip inserting a blank/NULL row to prevent database pollution
+    if snapshot.cpu.usage_percent is None and snapshot.memory.usage_percent is None:
+        logger.warning(
+            "ssh_collection_unreachable_skipping_db_row",
+            status=snapshot.data_quality.collection_status,
+            errors=snapshot.data_quality.errors,
+        )
+        return snapshot, None
+
     now_utc = datetime.now(timezone.utc)
     snapshot_id = uuid.uuid4()
 

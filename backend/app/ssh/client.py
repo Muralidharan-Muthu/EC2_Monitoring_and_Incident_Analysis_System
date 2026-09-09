@@ -203,3 +203,9 @@ def get_ssh_client() -> EC2SSHClient:
     if _default_client is None:
         _default_client = EC2SSHClient()
     return _default_client
+
+
+def reset_ssh_client() -> None:
+    """Reset singleton EC2SSHClient so updated settings take effect."""
+    global _default_client
+    _default_client = None

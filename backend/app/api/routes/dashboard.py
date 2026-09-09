@@ -14,12 +14,14 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.core.database import get_db
 from app.repositories.incident_repository import IncidentRepository
 from app.repositories.metric_repository import MetricRepository
 from app.schemas.analysis import DashboardSummary, TimeSeriesPoint, TimeSeriesResponse
 
 router = APIRouter()
+settings = get_settings()
 
 
 def _determine_system_status(
@@ -51,40 +53,48 @@ async def get_dashboard_summary(
     incident_repo = IncidentRepository(db)
 
     latest = await metric_repo.get_latest()
-    active_count = await incident_repo.count_active()
+    latest_valid = await metric_repo.get_latest_valid()
+    active_metric = latest_valid if (latest and latest.cpu_usage is None) else latest
 
-    # Determine highest severity from active incidents
+    active_count = await incident_repo.count_active()
     active_incidents = await incident_repo.get_active_incidents()
     severities = [i.severity for i in active_incidents]
     highest_severity = (
         "CRITICAL" if "CRITICAL" in severities else "WARNING" if severities else None
     )
 
-    latest_cpu = latest.cpu_usage if latest else None
-    system_status = _determine_system_status(active_count, highest_severity, latest_cpu)
-
-    # Determine SSH freshness from stored database timestamp
-    ssh_status = "CONNECTED"
-    if latest:
+    # Determine SSH freshness and connection status
+    if latest is None and latest_valid is None:
+        ssh_status = "UNAVAILABLE"
+        system_status = "UNAVAILABLE"
+    elif latest and (latest.cpu_usage is None and latest.memory_usage is None):
+        ssh_status = "UNAVAILABLE"
+        system_status = "UNAVAILABLE"
+    else:
+        metric_for_time = latest or latest_valid
         now_utc = datetime.now(tz=timezone.utc)
-        ts = latest.timestamp if latest.timestamp.tzinfo else latest.timestamp.replace(tzinfo=timezone.utc)
+        ts = metric_for_time.timestamp if metric_for_time.timestamp.tzinfo else metric_for_time.timestamp.replace(tzinfo=timezone.utc)
         age = (now_utc - ts).total_seconds()
         if age > 120:
             ssh_status = "DEGRADED"
-    else:
-        ssh_status = "CONNECTED"
+            system_status = "DEGRADED"
+        else:
+            ssh_status = "CONNECTED"
+            system_status = _determine_system_status(
+                active_count, highest_severity, active_metric.cpu_usage if active_metric else None
+            )
 
     return DashboardSummary(
         system_status=system_status,
         active_incident_count=active_count,
         highest_severity=highest_severity,
-        latest_cpu=latest.cpu_usage if latest else None,
-        latest_memory=latest.memory_usage if latest else None,
-        latest_disk=latest.disk_usage if latest else None,
-        latest_load_1m=latest.load_1m if latest else None,
-        latest_response_time_ms=latest.response_time_ms if latest else None,
-        hostname=latest.hostname if latest else "ec2-instance",
-        last_metric_at=latest.timestamp.isoformat() if latest else None,
+        latest_cpu=active_metric.cpu_usage if active_metric else None,
+        latest_memory=active_metric.memory_usage if active_metric else None,
+        latest_disk=active_metric.disk_usage if active_metric else None,
+        latest_load_1m=active_metric.load_1m if active_metric else None,
+        latest_response_time_ms=active_metric.response_time_ms if active_metric else None,
+        hostname=active_metric.hostname if active_metric else (latest.hostname if latest else (settings.ec2_host or "ec2-instance")),
+        last_metric_at=active_metric.timestamp.isoformat() if active_metric else (latest.timestamp.isoformat() if latest else None),
         ssh_status=ssh_status,
     )
 

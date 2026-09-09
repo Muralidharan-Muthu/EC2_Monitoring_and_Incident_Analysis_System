@@ -61,6 +61,11 @@ class Settings(BaseSettings):
     response_time_warning_ms: float = Field(default=1000.0)
     response_time_critical_ms: float = Field(default=2000.0)
 
+    # ---- AWS Credentials (for boto3 EC2 auto-discovery) ----
+    aws_access_key_id: str = Field(default="")
+    aws_secret_access_key: str = Field(default="")
+    aws_region: str = Field(default="ap-south-1")
+
     # ---- Groq LLM ----
     groq_api_key: str = Field(default="")
     groq_model: str = Field(default="qwen/qwen3.8-27b")

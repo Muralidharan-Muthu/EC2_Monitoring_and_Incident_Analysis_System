@@ -98,3 +98,9 @@ def get_collector_service() -> CollectorService:
     if _collector_service is None:
         _collector_service = CollectorService()
     return _collector_service
+
+
+def reset_collector_service() -> None:
+    """Reset singleton collector service so updated settings take effect."""
+    global _collector_service
+    _collector_service = None
