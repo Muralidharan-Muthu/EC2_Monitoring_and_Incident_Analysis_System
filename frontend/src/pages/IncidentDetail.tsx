@@ -1,9 +1,21 @@
 /**
  * Incident Detail Page — Full incident view with analysis, evidence, and processes.
+ * Uses Lucide icons instead of emojis.
  */
 
 import React from 'react';
 import { useParams, Link } from 'react-router-dom';
+import {
+  ArrowLeft,
+  ChevronRight,
+  Bot,
+  Info,
+  Clock,
+  Sparkles,
+  CheckCircle2,
+  AlertTriangle,
+  FileText,
+} from 'lucide-react';
 import { useIncidentDetail } from '../hooks/useIncidents';
 import { SeverityBadge } from '../components/SeverityBadge';
 import { IncidentTimeline } from '../components/IncidentTimeline';
@@ -46,7 +58,7 @@ export const IncidentDetail: React.FC = () => {
   if (loading) {
     return (
       <main className="page" id="incident-detail-page">
-        <div className="loading-state">Loading incident...</div>
+        <div className="loading-state">Loading incident from database...</div>
       </main>
     );
   }
@@ -55,8 +67,9 @@ export const IncidentDetail: React.FC = () => {
     return (
       <main className="page" id="incident-detail-page">
         <div className="alert alert-error">{error || 'Incident not found'}</div>
-        <Link to="/incidents" className="btn btn-secondary" id="back-to-incidents">
-          ← Back to Incidents
+        <Link to="/incidents" className="btn btn-secondary" id="back-to-incidents" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+          <ArrowLeft size={15} />
+          <span>Back to Incidents</span>
         </Link>
       </main>
     );
@@ -69,18 +82,19 @@ export const IncidentDetail: React.FC = () => {
     <main className="page" id="incident-detail-page">
       {/* Header */}
       <div className="page-header">
-        <div className="breadcrumb">
+        <div className="breadcrumb" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
           <Link to="/incidents" id="breadcrumb-incidents">Incidents</Link>
-          <span className="breadcrumb-sep">›</span>
+          <ChevronRight size={14} className="breadcrumb-sep" />
           <span>{incident.id.slice(0, 8)}</span>
         </div>
         <h1 className="page-title">{incident.title}</h1>
-        <div className="incident-detail-meta">
+        <div className="incident-detail-meta" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           <SeverityBadge severity={incident.severity} />
           <SeverityBadge status={incident.status} />
           <span className="meta-item">Host: {incident.hostname}</span>
-          <span className="meta-item">
-            Duration: {formatDuration(incident.started_at, incident.ended_at)}
+          <span className="meta-item" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+            <Clock size={13} />
+            <span>Duration: {formatDuration(incident.started_at, incident.ended_at)}</span>
           </span>
         </div>
       </div>
@@ -118,7 +132,7 @@ export const IncidentDetail: React.FC = () => {
           <section className="detail-section" aria-label="Detected Anomalies">
             <h2 className="section-title">Detected Anomalies</h2>
             <div className="observation-note">
-              <strong>Observed facts</strong> — detected by rule-based analysis
+              <strong>Observed facts</strong> — verified by deterministic rule evaluation
             </div>
             <div className="anomaly-list" id="anomaly-list">
               {incident.anomalies.map((a) => (
@@ -146,16 +160,28 @@ export const IncidentDetail: React.FC = () => {
           {/* Analysis Section */}
           <section className="detail-section" aria-label="Analysis">
             <div className="section-header-row">
-              <h2 className="section-title">
-                {(analysis?.analysis_source === 'llm' || analysis?.analysis_source === 'groq') ? '🤖 LangGraph + Groq Analysis' : 'Deterministic Rule Analysis'}
+              <h2 className="section-title" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                {(analysis?.analysis_source === 'llm' || analysis?.analysis_source === 'groq') ? (
+                  <>
+                    <Bot size={20} color="var(--color-brand)" />
+                    <span>LangGraph + Groq AI Analysis</span>
+                  </>
+                ) : (
+                  <>
+                    <FileText size={18} />
+                    <span>Deterministic Rule Analysis</span>
+                  </>
+                )}
               </h2>
               <button
                 id="trigger-analysis-btn"
                 className={`btn btn-primary btn-sm ${analyzing ? 'loading' : ''}`}
                 onClick={triggerAnalysis}
                 disabled={analyzing}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
               >
-                {analyzing ? 'Analyzing...' : incident.llm_analyzed ? 'Re-run LangGraph Analysis' : 'Run LangGraph AI Analysis'}
+                <Sparkles size={14} />
+                <span>{analyzing ? 'Analyzing with LangGraph...' : incident.llm_analyzed ? 'Re-run AI Analysis' : 'Run LangGraph AI Analysis'}</span>
               </button>
             </div>
 
@@ -175,8 +201,9 @@ export const IncidentDetail: React.FC = () => {
               <div className="analysis-block" id="probable-cause">
                 <h3 className="analysis-label">Probable Cause</h3>
                 <p className="analysis-text analysis-inferred">{incident.probable_cause}</p>
-                <div className="inference-note">
-                  ⓘ This is a probabilistic assessment based on observed evidence, not a confirmed root cause.
+                <div className="inference-note" style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                  <Info size={13} />
+                  <span>Probabilistic assessment derived by AI workflow based on telemetry evidence.</span>
                 </div>
               </div>
             )}

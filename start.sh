@@ -23,14 +23,37 @@ if [ ! -f "$FRONTEND_DIR/.env" ]; then
     cp "$FRONTEND_DIR/.env.example" "$FRONTEND_DIR/.env"
 fi
 
+# Locate virtual environment python binary (works across Windows Git Bash, WSL, and Linux/macOS)
+if [ -f "$BACKEND_DIR/venv/Scripts/python.exe" ]; then
+    VENV_PYTHON="$BACKEND_DIR/venv/Scripts/python.exe"
+elif [ -f "$BACKEND_DIR/venv/bin/python" ]; then
+    VENV_PYTHON="$BACKEND_DIR/venv/bin/python"
+elif [ -f "$BACKEND_DIR/venv/Scripts/python" ]; then
+    VENV_PYTHON="$BACKEND_DIR/venv/Scripts/python"
+else
+    # Attempt to create venv if missing
+    echo "[INFO] Initializing Python virtual environment..."
+    PYTHON_CMD="python3"
+    if ! command -v python3 &>/dev/null; then
+        PYTHON_CMD="python"
+    fi
+    (cd "$BACKEND_DIR" && $PYTHON_CMD -m venv venv)
+
+    if [ -f "$BACKEND_DIR/venv/Scripts/python.exe" ]; then
+        VENV_PYTHON="$BACKEND_DIR/venv/Scripts/python.exe"
+    elif [ -f "$BACKEND_DIR/venv/bin/python" ]; then
+        VENV_PYTHON="$BACKEND_DIR/venv/bin/python"
+    else
+        VENV_PYTHON="python"
+    fi
+fi
+
 case "$MODE" in
     setup)
         echo "[INFO] Running full setup..."
         cd "$BACKEND_DIR"
-        if [ ! -d "venv" ]; then python3 -m venv venv; fi
-        source venv/bin/activate
-        pip install -q -r requirements.txt
-        alembic upgrade head
+        "$VENV_PYTHON" -m pip install -q -r requirements.txt
+        "$VENV_PYTHON" -m alembic upgrade head
 
         cd "$FRONTEND_DIR"
         if [ ! -d "node_modules" ]; then npm install; fi
@@ -40,8 +63,7 @@ case "$MODE" in
     backend)
         echo "[INFO] Starting Backend..."
         cd "$BACKEND_DIR"
-        source venv/bin/activate
-        uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+        "$VENV_PYTHON" -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
         ;;
 
     frontend)
@@ -53,15 +75,13 @@ case "$MODE" in
     test)
         echo "[INFO] Running tests..."
         cd "$BACKEND_DIR"
-        source venv/bin/activate
-        pytest app/tests/ -v
+        "$VENV_PYTHON" -m pytest app/tests/ -v
         ;;
 
     all|dev|*)
         echo "[INFO] Starting Backend and Frontend..."
         cd "$BACKEND_DIR"
-        source venv/bin/activate
-        uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload &
+        "$VENV_PYTHON" -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload &
         BACKEND_PID=$!
 
         cd "$FRONTEND_DIR"
@@ -69,9 +89,9 @@ case "$MODE" in
         FRONTEND_PID=$!
 
         echo "[SUCCESS] Services launched:"
-        echo "  - Backend:  http://localhost:8000"
-        echo "  - Frontend: http://localhost:5173"
-        echo "  - Swagger:  http://localhost:8000/docs"
+        echo "  - Backend API:  http://localhost:8000"
+        echo "  - Frontend UI:  http://localhost:5173"
+        echo "  - Swagger Docs: http://localhost:8000/docs"
 
         trap "kill $BACKEND_PID $FRONTEND_PID 2>/dev/null || true" EXIT INT TERM
         wait

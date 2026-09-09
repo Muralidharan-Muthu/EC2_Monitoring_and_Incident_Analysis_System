@@ -36,6 +36,11 @@ export const monitoringApi = {
     const response = await api.post<MonitoringResponse<any>>('/monitoring/collect');
     return response.data;
   },
+
+  resetDatabase: async (): Promise<{ success: boolean; message?: string; error?: any }> => {
+    const response = await api.post<{ success: boolean; message?: string; error?: any }>('/monitoring/reset-database');
+    return response.data;
+  },
 };
 
 export default monitoringApi;

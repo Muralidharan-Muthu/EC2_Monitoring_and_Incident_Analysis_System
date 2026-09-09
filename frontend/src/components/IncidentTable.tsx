@@ -4,6 +4,7 @@
 
 import React from 'react';
 import { Link } from 'react-router-dom';
+import { CheckCircle2 } from 'lucide-react';
 import type { Incident } from '../types/incident';
 import { SeverityBadge } from './SeverityBadge';
 
@@ -39,8 +40,10 @@ export const IncidentTable: React.FC<IncidentTableProps> = ({ incidents, loading
   if (incidents.length === 0) {
     return (
       <div className="empty-state">
-        <div className="empty-icon">✓</div>
-        <p className="empty-title">No incidents found</p>
+        <div className="empty-icon" style={{ display: 'flex', justifyContent: 'center' }}>
+          <CheckCircle2 size={40} color="var(--color-healthy)" />
+        </div>
+        <p className="empty-title" style={{ marginTop: '8px' }}>No incidents found</p>
         <p className="empty-desc">The system is operating normally.</p>
       </div>
     );

@@ -1,9 +1,11 @@
 /**
  * IncidentCard — compact incident summary card for lists and dashboard.
+ * Uses Lucide icons instead of emojis.
  */
 
 import React from 'react';
 import { Link } from 'react-router-dom';
+import { Clock, Sparkles } from 'lucide-react';
 import type { Incident } from '../types/incident';
 import { SeverityBadge } from './SeverityBadge';
 
@@ -49,8 +51,9 @@ export const IncidentCard: React.FC<IncidentCardProps> = ({ incident }) => {
       <div className="incident-card-meta">
         <span className="incident-card-host">{incident.hostname}</span>
         <span className="incident-card-time">{formatTime(incident.started_at)}</span>
-        <span className="incident-card-duration">
-          ⏱ {formatDuration(incident.started_at, incident.ended_at)}
+        <span className="incident-card-duration" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+          <Clock size={12} />
+          <span>{formatDuration(incident.started_at, incident.ended_at)}</span>
         </span>
       </div>
 
@@ -67,7 +70,10 @@ export const IncidentCard: React.FC<IncidentCardProps> = ({ incident }) => {
       <div className="incident-card-score">
         Correlation score: <strong>{incident.correlation_score.toFixed(1)}</strong>
         {incident.llm_analyzed && (
-          <span className="ai-badge">AI analyzed</span>
+          <span className="ai-badge" style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+            <Sparkles size={11} />
+            <span>AI analyzed</span>
+          </span>
         )}
       </div>
     </Link>

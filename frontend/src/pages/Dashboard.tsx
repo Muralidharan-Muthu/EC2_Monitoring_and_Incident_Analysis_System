@@ -1,10 +1,24 @@
 /**
  * Dashboard Page — Professional EC2 Monitoring and Incident Analysis.
  * Adheres strictly to zero fake metrics rule (null displays as '-').
+ * Replaces emojis with Lucide React icons.
+ * Provides live SSH collect & Database Reset controls.
  */
 
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
+import {
+  RefreshCw,
+  Trash2,
+  CheckCircle2,
+  ArrowRight,
+  Cpu,
+  Layers,
+  HardDrive,
+  Activity,
+  Clock,
+  ShieldCheck,
+} from 'lucide-react';
 import { useDashboardSummary, useTimeseries } from '../hooks/useMetrics';
 import { useIncidents } from '../hooks/useIncidents';
 import { MetricCard } from '../components/MetricCard';
@@ -23,6 +37,7 @@ export const Dashboard: React.FC = () => {
   });
 
   const [collecting, setCollecting] = useState(false);
+  const [resetting, setResetting] = useState(false);
   const [collectMessage, setCollectMessage] = useState<string | null>(null);
 
   // Auto-refresh every 10 seconds per Section 42
@@ -41,7 +56,7 @@ export const Dashboard: React.FC = () => {
     try {
       const res = await monitoringApi.collectNow();
       if (res.success) {
-        setCollectMessage('Live telemetry collected successfully via SSH.');
+        setCollectMessage('Live telemetry collected via SSH, persisted to Supabase, and updated.');
         refreshSummary();
         refreshTimeseries();
         refreshIncidents();
@@ -56,30 +71,65 @@ export const Dashboard: React.FC = () => {
     }
   };
 
+  const handleResetDatabase = async () => {
+    if (!window.confirm('Are you sure you want to delete all monitoring data from the database? This action cannot be undone.')) {
+      return;
+    }
+    setResetting(true);
+    setCollectMessage(null);
+    try {
+      const res = await monitoringApi.resetDatabase();
+      if (res.success) {
+        setCollectMessage('Database cleared. All metrics, anomalies, and incidents deleted.');
+        refreshSummary();
+        refreshTimeseries();
+        refreshIncidents();
+      } else {
+        setCollectMessage(res.error?.message || 'Failed to reset database.');
+      }
+    } catch (err: any) {
+      setCollectMessage(err?.message || 'Database reset request failed.');
+    } finally {
+      setResetting(false);
+      setTimeout(() => setCollectMessage(null), 4000);
+    }
+  };
+
   const sshStatus = summary?.ssh_status || 'CONNECTED';
   const systemStatus = summary?.system_status || 'HEALTHY';
 
   return (
     <main className="page" id="dashboard-page">
-      {/* Top Header with SSH Status & Manual Action */}
-      <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      {/* Top Header with SSH Status & Action Buttons */}
+      <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
         <div>
           <h1 className="page-title">EC2 Monitoring & Incident Analysis</h1>
           <p className="page-subtitle">
             Remote agentless telemetry via SSH
             {summary?.hostname && ` · Host: ${summary.hostname}`}
             {summary?.last_metric_at && (
-              <> · Last updated: {new Date(summary.last_metric_at).toLocaleTimeString()}</>
+              <> · Last persisted: {new Date(summary.last_metric_at).toLocaleTimeString()}</>
             )}
           </p>
         </div>
-        <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+          <button
+            id="reset-db-btn"
+            className="btn btn-danger btn-sm"
+            onClick={handleResetDatabase}
+            disabled={resetting || collecting}
+            title="Wipe all database records"
+          >
+            <Trash2 size={14} />
+            {resetting ? 'Wiping DB...' : 'Reset DB'}
+          </button>
           <button
             id="collect-now-btn"
             className="btn btn-primary"
             onClick={handleCollectNow}
-            disabled={collecting}
+            disabled={collecting || resetting}
           >
+            <RefreshCw size={15} className={collecting ? 'spin' : ''} />
             {collecting ? 'Collecting via SSH...' : 'Collect Now'}
           </button>
         </div>
@@ -93,13 +143,13 @@ export const Dashboard: React.FC = () => {
 
       {/* EC2 Health Banner */}
       <section className="status-banner" style={{ marginBottom: '24px' }}>
-        <div className="status-banner-content" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
-          <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
+        <div className="status-banner-content" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', flexWrap: 'wrap', gap: '16px' }}>
+          <div style={{ display: 'flex', gap: '20px', alignItems: 'center', flexWrap: 'wrap' }}>
             <div>
               <div className="status-label">EC2 CONNECTION</div>
               <StatusBadge status={sshStatus} size="lg" />
             </div>
-            <div style={{ borderLeft: '1px solid #e5e7eb', paddingLeft: '16px' }}>
+            <div style={{ borderLeft: '1px solid var(--color-border)', paddingLeft: '20px' }}>
               <div className="status-label">OVERALL HEALTH</div>
               <StatusBadge status={systemStatus} size="lg" />
             </div>
@@ -116,15 +166,15 @@ export const Dashboard: React.FC = () => {
 
       {summaryError && (
         <div className="alert alert-error" role="alert">
-          Failed to load metrics: {summaryError}
+          Failed to load metrics from database: {summaryError}
         </div>
       )}
 
       {/* Metric Cards — CPU, Memory, Disk, Load, Response Time */}
       <section className="section" aria-label="Current Metrics">
-        <h2 className="section-title">Current System Telemetry</h2>
+        <h2 className="section-title">Current System Telemetry (Read from Database)</h2>
         {summaryLoading && !summary ? (
-          <div className="loading-state">Connecting to EC2...</div>
+          <div className="loading-state">Querying database...</div>
         ) : (
           <div className="metrics-grid" id="metrics-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }}>
             <MetricCard
@@ -172,8 +222,9 @@ export const Dashboard: React.FC = () => {
       <section className="section" aria-label="Metric Trends">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
           <h2 className="section-title" style={{ margin: 0 }}>Telemetry Trends (Past 60 Minutes)</h2>
-          <Link to="/metrics" className="btn btn-secondary btn-sm">
-            Detailed History & Process Telemetry &rarr;
+          <Link to="/metrics" className="btn btn-secondary btn-sm" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+            <span>Detailed History</span>
+            <ArrowRight size={14} />
           </Link>
         </div>
         {tsLoading && !timeseries ? (
@@ -234,8 +285,10 @@ export const Dashboard: React.FC = () => {
           </div>
         ) : (
           <div className="empty-state">
-            <div className="empty-icon" style={{ color: '#10b981' }}>✓</div>
-            <p className="empty-title">All Systems Healthy</p>
+            <div className="empty-icon" style={{ display: 'flex', justifyContent: 'center' }}>
+              <CheckCircle2 size={40} color="var(--color-healthy)" />
+            </div>
+            <p className="empty-title" style={{ marginTop: '8px' }}>All Systems Healthy</p>
             <p className="empty-desc">No abnormal metric correlations detected on remote EC2 instance.</p>
           </div>
         )}

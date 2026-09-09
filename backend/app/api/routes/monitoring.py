@@ -94,3 +94,33 @@ async def trigger_collection(db: AsyncSession = Depends(get_db)):
                 "message": "Manual collection cycle encountered an error.",
             },
         }
+
+
+@router.post("/reset-database")
+async def reset_database(db: AsyncSession = Depends(get_db)):
+    """
+    Clear all telemetry, anomaly, and incident records from the database.
+    Allows testing clean-slate monitoring and incident creation.
+    """
+    from sqlalchemy import text
+    try:
+        await db.execute(text("DELETE FROM incident_analyses;"))
+        await db.execute(text("DELETE FROM incident_anomalies;"))
+        await db.execute(text("DELETE FROM anomalies;"))
+        await db.execute(text("DELETE FROM incidents;"))
+        await db.execute(text("DELETE FROM process_snapshots;"))
+        await db.execute(text("DELETE FROM metrics;"))
+        await db.commit()
+        return {
+            "success": True,
+            "message": "All database records have been cleared successfully.",
+        }
+    except Exception as exc:
+        logger.error("reset_database_failed", error=str(exc))
+        return {
+            "success": False,
+            "error": {
+                "code": "RESET_FAILED",
+                "message": f"Failed to reset database: {exc}",
+            },
+        }
