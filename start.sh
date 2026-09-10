@@ -47,6 +47,20 @@ else
         VENV_PYTHON="python"
     fi
 fi
+free_port() {
+    local port=$1
+    if command -v powershell.exe &>/dev/null; then
+        powershell.exe -NoProfile -Command "try { Get-NetTCPConnection -LocalPort $port -ErrorAction Stop | ForEach-Object { Stop-Process -Id \$_.OwningProcess -Force -ErrorAction SilentlyContinue } } catch {} exit 0" 2>/dev/null || true
+    elif command -v lsof &>/dev/null; then
+        local pids
+        pids=$(lsof -ti :"$port" 2>/dev/null || true)
+        if [ -n "$pids" ]; then
+            kill -9 $pids 2>/dev/null || true
+        fi
+    elif command -v fuser &>/dev/null; then
+        fuser -k "${port}/tcp" 2>/dev/null || true
+    fi
+}
 
 case "$MODE" in
     setup)
@@ -61,12 +75,14 @@ case "$MODE" in
         ;;
 
     backend)
+        free_port 8000
         echo "[INFO] Starting Backend..."
         cd "$BACKEND_DIR"
         "$VENV_PYTHON" -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
         ;;
 
     frontend)
+        free_port 5173
         echo "[INFO] Starting Frontend..."
         cd "$FRONTEND_DIR"
         npm run dev
@@ -79,6 +95,9 @@ case "$MODE" in
         ;;
 
     all|dev|*)
+        free_port 8000
+        free_port 5173
+
         echo "[INFO] Starting Backend and Frontend..."
         cd "$BACKEND_DIR"
         "$VENV_PYTHON" -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload &
@@ -93,7 +112,12 @@ case "$MODE" in
         echo "  - Frontend UI:  http://localhost:5173"
         echo "  - Swagger Docs: http://localhost:8000/docs"
 
-        trap "kill $BACKEND_PID $FRONTEND_PID 2>/dev/null || true" EXIT INT TERM
+        cleanup() {
+            kill $BACKEND_PID $FRONTEND_PID 2>/dev/null || true
+            free_port 8000
+            free_port 5173
+        }
+        trap cleanup EXIT INT TERM
         wait
         ;;
 esac

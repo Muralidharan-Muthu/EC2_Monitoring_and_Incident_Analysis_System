@@ -122,20 +122,96 @@ export const IncidentDetail: React.FC = () => {
 
   const analysis = incident.analysis;
   const affectedMetrics = incident.affected_metrics || [];
-  const anomalies = incident.anomalies || [];
-
-  // Determine latest observed values for the metric pulse strip
-  const getObserved = (name: string, fallback: number) => {
-    const list = anomalies.filter((a) => a.metric_name === name);
-    if (list.length === 0) return fallback;
-    return list[list.length - 1].observed_value;
+  const anomalies = incident.anomalies || [];  // Metric display configuration metadata
+  const METRIC_CONFIG: Record<string, { label: string; unit: string; thresholdText: string; max: number }> = {
+    cpu_usage: { label: 'CPU Usage', unit: '%', thresholdText: 'Threshold: >90.0%', max: 100 },
+    load_1m: { label: 'System Load (1m)', unit: '', thresholdText: 'Capacity: 2.0 (2 cores)', max: 6.0 },
+    memory_usage: { label: 'Memory Usage', unit: '%', thresholdText: 'Threshold: >90.0%', max: 100 },
+    disk_usage: { label: 'Disk Storage', unit: '%', thresholdText: 'Threshold: >85.0%', max: 100 },
+    response_time_ms: { label: 'Response Time', unit: ' ms', thresholdText: 'Threshold: >1000 ms', max: 3000 },
   };
 
-  const cpuVal = getObserved('cpu_usage', 96.0);
-  const memVal = getObserved('memory_usage', 91.0);
-  const respVal = getObserved('response_time_ms', 2500.0);
-  const loadVal = getObserved('load_1m', 4.8);
-  const diskVal = getObserved('disk_usage', 85.0);
+  // Only extract metrics that are ACTUALLY anomalous in this incident
+  const activeMetrics = Array.from(new Set(anomalies.map((a) => a.metric_name)));
+  const displayMetrics = activeMetrics.length > 0
+    ? activeMetrics
+    : (affectedMetrics.length > 0 ? affectedMetrics : ['cpu_usage']);
+
+  // Dynamic pulse metrics data
+  const pulseMetricsData = displayMetrics.map((name) => {
+    const list = anomalies.filter((a) => a.metric_name === name);
+    const latest = list.length > 0 ? list[list.length - 1] : null;
+    const obsVal = latest ? latest.observed_value : 0;
+    const sev = latest?.severity || incident.severity || 'CRITICAL';
+    const cfg = METRIC_CONFIG[name] || {
+      label: METRIC_LABELS[name] || name,
+      unit: '',
+      thresholdText: 'Observed Anomaly',
+      max: 100,
+    };
+    return {
+      name,
+      label: cfg.label,
+      value: obsVal,
+      unit: cfg.unit,
+      thresholdText: cfg.thresholdText,
+      severity: sev,
+      barPercent: Math.min(100, (obsVal / cfg.max) * 100),
+    };
+  });
+
+  // Dynamic culprit extraction from evidence or probable cause
+  const extractCulprits = () => {
+    const text = `${incident.probable_cause || ''} ${(analysis?.evidence || []).join(' ')}`;
+    const culprits: Array<{ name: string; detail: string; stat: string; type: 'cpu' | 'mem' }> = [];
+    
+    // Look for processes mentioned like 'stress-ng-cpu' consuming 96.4% CPU
+    const regex = /'([a-zA-Z0-9_\-\.]+)'(?:\s*consuming\s*([\d\.]+)%\s*CPU)?(?:\s*and\s*([\d\.]+)%\s*(?:memory|RAM))?/gi;
+    let match;
+    while ((match = regex.exec(text)) !== null) {
+      const name = match[1];
+      const cpu = match[2];
+      const mem = match[3];
+      if (name && !culprits.some(c => c.name === name)) {
+        if (cpu && parseFloat(cpu) > 0) {
+          culprits.push({ name, detail: 'Identified Workload Process', stat: `${parseFloat(cpu).toFixed(1)}% CPU`, type: 'cpu' });
+        } else if (mem && parseFloat(mem) > 0) {
+          culprits.push({ name, detail: 'Virtual Memory Consumer', stat: `${parseFloat(mem).toFixed(1)}% RAM`, type: 'mem' });
+        } else {
+          culprits.push({ name, detail: 'Active Process', stat: 'High Resource', type: 'cpu' });
+        }
+      }
+    }
+    return culprits;
+  };
+
+  const detectedCulprits = extractCulprits();
+
+  // Calculate progression per metric
+  const progressionRows = displayMetrics.map((name) => {
+    const list = anomalies.filter((a) => a.metric_name === name);
+    const initial = list[0];
+    const latest = list[list.length - 1];
+    const cfg = METRIC_CONFIG[name] || { label: name, unit: '', max: 100 };
+    const initialVal = initial ? initial.observed_value : 0;
+    const latestVal = latest ? latest.observed_value : initialVal;
+    const diff = latestVal - initialVal;
+    const deltaStr = Math.abs(diff) > 0.05
+      ? `${diff > 0 ? '+' : ''}${diff.toFixed(1)}${cfg.unit} shift`
+      : 'Sustained saturation';
+
+    return {
+      name,
+      label: cfg.label,
+      unit: cfg.unit,
+      initialVal,
+      latestVal,
+      initialTime: initial ? new Date(initial.detected_at).toLocaleTimeString() : '-',
+      latestTime: latest ? new Date(latest.detected_at).toLocaleTimeString() : '-',
+      deltaStr,
+      severity: latest?.severity || initial?.severity || 'CRITICAL',
+    };
+  });
 
   // Recommended actions list
   const actionsList =
@@ -149,10 +225,10 @@ export const IncidentDetail: React.FC = () => {
           'Examine system journal for kernel memory pressure or OOM notifications.',
         ];
 
-  // Concise summary for sidebar
+  // Concise summary for sidebar strictly reflecting real incident data
   const conciseSummary =
-    `[${incident.severity}] Unified incident on ${incident.hostname} affecting ${affectedMetrics.map(m => METRIC_LABELS[m] || m).join(', ')}. ` +
-    `Cross-metric correlation confirmed concurrent compute saturation cascading into response time degradation.`;
+    incident.summary ||
+    `[${incident.severity}] Incident on ${incident.hostname} affecting ${displayMetrics.map(m => METRIC_CONFIG[m]?.label || m).join(', ')}. ${incident.event_relationship || incident.probable_cause || ''}`;
 
   return (
     <main className="page" id="incident-detail-page">
@@ -216,67 +292,29 @@ export const IncidentDetail: React.FC = () => {
         </div>
       </div>
 
-      {/* Metric Pulse Strip — At-a-glance telemetry overview */}
+      {/* Dynamic Metric Pulse Strip — Renders ONLY metrics actually anomalous in this incident */}
       <div className="metric-pulse-strip">
-        <div className="pulse-card critical">
-          <div className="pulse-header">
-            <span className="pulse-title">CPU Usage</span>
-            <span style={{ fontSize: '11px', color: '#ef4444', fontWeight: 700 }}>CRITICAL</span>
-          </div>
-          <div className="pulse-value">{cpuVal.toFixed(1)}%</div>
-          <div className="pulse-threshold">Threshold: &gt;90.0%</div>
-          <div className="pulse-bar-track">
-            <div className="pulse-bar-fill critical" style={{ width: `${Math.min(100, cpuVal)}%` }} />
-          </div>
-        </div>
-
-        <div className="pulse-card critical">
-          <div className="pulse-header">
-            <span className="pulse-title">Memory Usage</span>
-            <span style={{ fontSize: '11px', color: '#ef4444', fontWeight: 700 }}>CRITICAL</span>
-          </div>
-          <div className="pulse-value">{memVal.toFixed(1)}%</div>
-          <div className="pulse-threshold">Threshold: &gt;90.0%</div>
-          <div className="pulse-bar-track">
-            <div className="pulse-bar-fill critical" style={{ width: `${Math.min(100, memVal)}%` }} />
-          </div>
-        </div>
-
-        <div className="pulse-card critical">
-          <div className="pulse-header">
-            <span className="pulse-title">Response Time</span>
-            <span style={{ fontSize: '11px', color: '#ef4444', fontWeight: 700 }}>CRITICAL</span>
-          </div>
-          <div className="pulse-value">{respVal.toFixed(0)} ms</div>
-          <div className="pulse-threshold">Threshold: &gt;1000 ms</div>
-          <div className="pulse-bar-track">
-            <div className="pulse-bar-fill critical" style={{ width: `${Math.min(100, (respVal / 3000) * 100)}%` }} />
-          </div>
-        </div>
-
-        <div className="pulse-card critical">
-          <div className="pulse-header">
-            <span className="pulse-title">System Load (1m)</span>
-            <span style={{ fontSize: '11px', color: '#ef4444', fontWeight: 700 }}>HIGH</span>
-          </div>
-          <div className="pulse-value">{loadVal.toFixed(2)}</div>
-          <div className="pulse-threshold">Capacity: 2.0 (2 cores)</div>
-          <div className="pulse-bar-track">
-            <div className="pulse-bar-fill critical" style={{ width: `${Math.min(100, (loadVal / 6.0) * 100)}%` }} />
-          </div>
-        </div>
-
-        <div className="pulse-card warning">
-          <div className="pulse-header">
-            <span className="pulse-title">Disk Storage</span>
-            <span style={{ fontSize: '11px', color: '#f59e0b', fontWeight: 700 }}>WARNING</span>
-          </div>
-          <div className="pulse-value">{diskVal.toFixed(1)}%</div>
-          <div className="pulse-threshold">Threshold: &gt;85.0%</div>
-          <div className="pulse-bar-track">
-            <div className="pulse-bar-fill warning" style={{ width: `${Math.min(100, diskVal)}%` }} />
-          </div>
-        </div>
+        {pulseMetricsData.map((item) => {
+          const cardClass = item.severity.toLowerCase() === 'critical' ? 'critical' : item.severity.toLowerCase() === 'warning' ? 'warning' : 'healthy';
+          return (
+            <div key={item.name} className={`pulse-card ${cardClass}`}>
+              <div className="pulse-header">
+                <span className="pulse-title">{item.label}</span>
+                <span style={{ fontSize: '11px', color: item.severity === 'CRITICAL' ? '#ef4444' : '#f59e0b', fontWeight: 700 }}>
+                  {item.severity}
+                </span>
+              </div>
+              <div className="pulse-value">
+                {item.value.toFixed(item.name === 'load_1m' ? 2 : item.name === 'response_time_ms' ? 0 : 1)}
+                {item.unit}
+              </div>
+              <div className="pulse-threshold">{item.thresholdText}</div>
+              <div className="pulse-bar-track">
+                <div className={`pulse-bar-fill ${cardClass}`} style={{ width: `${item.barPercent}%` }} />
+              </div>
+            </div>
+          );
+        })}
       </div>
 
       {/* Main Content Layout with Responsive Sidebar */}
@@ -348,22 +386,35 @@ export const IncidentDetail: React.FC = () => {
                   <span style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--color-text-secondary)', letterSpacing: '0.05em' }}>
                     Identified High-Load Processes (Evidence)
                   </span>
-                  <div className="culprit-grid">
-                    <div className="culprit-card">
-                      <div>
-                        <div className="culprit-name">stress-ng-cpu</div>
-                        <span style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>PID: 4102 · Worker Process</span>
-                      </div>
-                      <span className="culprit-stat cpu">95.8% CPU</span>
+                  {detectedCulprits.length > 0 ? (
+                    <div className="culprit-grid">
+                      {detectedCulprits.map((c, idx) => (
+                        <div key={idx} className="culprit-card">
+                          <div>
+                            <div className="culprit-name">{c.name}</div>
+                            <span style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>{c.detail}</span>
+                          </div>
+                          <span className={`culprit-stat ${c.type}`}>{c.stat}</span>
+                        </div>
+                      ))}
                     </div>
-                    <div className="culprit-card">
-                      <div>
-                        <div className="culprit-name">stress-ng-vm</div>
-                        <span style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>PID: 4103 · Virtual Memory</span>
-                      </div>
-                      <span className="culprit-stat mem">46.5% RAM</span>
+                  ) : analysis?.evidence && analysis.evidence.length > 0 ? (
+                    <div className="culprit-grid">
+                      {analysis.evidence.map((ev, idx) => (
+                        <div key={idx} className="culprit-card">
+                          <div>
+                            <div className="culprit-name">{ev.includes("'") ? ev.split("'")[1] : 'Identified Workload'}</div>
+                            <span style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>{ev}</span>
+                          </div>
+                          <span className="culprit-stat cpu">Active</span>
+                        </div>
+                      ))}
                     </div>
-                  </div>
+                  ) : (
+                    <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)', margin: '8px 0 0 0' }}>
+                      Telemetry evidence confirmed from top active Linux processes.
+                    </p>
+                  )}
                 </div>
               </section>
 
@@ -440,10 +491,10 @@ export const IncidentDetail: React.FC = () => {
             <div className="tab-content" id="tab-progression">
               <section className="detail-section">
                 <h3 className="section-title" style={{ fontSize: '15px', marginBottom: '8px' }}>
-                  Operational Progression: 10:00 AM vs 10:05 AM
+                  Incident Telemetry Progression & Escalation
                 </h3>
                 <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)', marginBottom: '14px' }}>
-                  Demonstrates the exact multi-metric escalation described in the technical assessment. Notice how persistent compute saturation induced request queuing and application response latency.
+                  Tracks the chronological progression of each anomalous metric observed during this incident from initial detection to latest reading.
                 </p>
 
                 <div className="progression-table-wrapper">
@@ -451,48 +502,30 @@ export const IncidentDetail: React.FC = () => {
                     <thead>
                       <tr>
                         <th>Metric Name</th>
-                        <th>At 10:00 AM (Initial Breach)</th>
-                        <th>At 10:05 AM (Escalation)</th>
-                        <th>Delta / Impact</th>
+                        <th>Initial Breach</th>
+                        <th>Peak / Latest Observed</th>
+                        <th>Progression / Delta</th>
                         <th>Status</th>
                       </tr>
                     </thead>
                     <tbody>
-                      <tr>
-                        <td><strong>CPU Usage</strong></td>
-                        <td>92.0% (Critical)</td>
-                        <td><strong style={{ color: '#ef4444' }}>96.0% (Critical)</strong></td>
-                        <td>+4.0% compute saturation</td>
-                        <td><SeverityBadge severity="CRITICAL" size="sm" /></td>
-                      </tr>
-                      <tr>
-                        <td><strong>Memory Usage</strong></td>
-                        <td>88.0% (Warning)</td>
-                        <td><strong style={{ color: '#ef4444' }}>91.0% (Critical)</strong></td>
-                        <td>+3.0% physical RAM allocated</td>
-                        <td><SeverityBadge severity="CRITICAL" size="sm" /></td>
-                      </tr>
-                      <tr>
-                        <td><strong>Disk Storage</strong></td>
-                        <td>85.0% (Warning)</td>
-                        <td>85.0% (Warning)</td>
-                        <td>Capacity near threshold</td>
-                        <td><SeverityBadge severity="WARNING" size="sm" /></td>
-                      </tr>
-                      <tr>
-                        <td><strong>System Load (1m)</strong></td>
-                        <td>3.50 (High)</td>
-                        <td><strong style={{ color: '#ef4444' }}>4.80 (Very High)</strong></td>
-                        <td>Run queue backed up (2.4x core capacity)</td>
-                        <td><SeverityBadge severity="CRITICAL" size="sm" /></td>
-                      </tr>
-                      <tr>
-                        <td><strong>Response Time</strong></td>
-                        <td>Normal baseline</td>
-                        <td><strong style={{ color: '#ef4444' }}>2,500 ms (Spike)</strong></td>
-                        <td>Direct consequence of CPU/RAM backlog</td>
-                        <td><SeverityBadge severity="CRITICAL" size="sm" /></td>
-                      </tr>
+                      {progressionRows.map((row) => (
+                        <tr key={row.name}>
+                          <td><strong>{row.label}</strong></td>
+                          <td>
+                            {row.initialVal.toFixed(row.name === 'load_1m' ? 2 : row.name === 'response_time_ms' ? 0 : 1)}{row.unit}
+                            <span style={{ fontSize: '11px', color: 'var(--color-text-muted)', display: 'block' }}>at {row.initialTime}</span>
+                          </td>
+                          <td>
+                            <strong style={{ color: row.severity === 'CRITICAL' ? '#ef4444' : '#f59e0b' }}>
+                              {row.latestVal.toFixed(row.name === 'load_1m' ? 2 : row.name === 'response_time_ms' ? 0 : 1)}{row.unit}
+                            </strong>
+                            <span style={{ fontSize: '11px', color: 'var(--color-text-muted)', display: 'block' }}>at {row.latestTime}</span>
+                          </td>
+                          <td>{row.deltaStr}</td>
+                          <td><SeverityBadge severity={row.severity} size="sm" /></td>
+                        </tr>
+                      ))}
                     </tbody>
                   </table>
                 </div>

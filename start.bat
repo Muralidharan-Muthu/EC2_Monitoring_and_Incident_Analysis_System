@@ -62,6 +62,8 @@ pytest app/tests/ -v
 goto end
 
 :do_all
+echo [INFO] Freeing ports 8000 and 5173 if occupied...
+powershell -NoProfile -Command "try { Get-NetTCPConnection -LocalPort 8000,5173 -ErrorAction Stop | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue } } catch {} exit 0" >nul 2>&1
 echo [INFO] Launching FastAPI Backend (with SSH periodic monitoring) and React Frontend...
 start "Backend - FastAPI" cmd /k "cd /d %BACKEND_DIR% && .\venv\Scripts\activate.bat && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
 timeout /t 2 /nobreak >nul

@@ -41,7 +41,6 @@ export const Dashboard: React.FC = () => {
 
   const [collecting, setCollecting] = useState(false);
   const [resetting, setResetting] = useState(false);
-  const [simulating, setSimulating] = useState(false);
   const [collectMessage, setCollectMessage] = useState<string | null>(null);
 
   // Host configuration state
@@ -107,23 +106,6 @@ export const Dashboard: React.FC = () => {
     } finally {
       setResetting(false);
       setTimeout(() => setCollectMessage(null), 4000);
-    }
-  };
-
-  const handleSimulateAssessment = async () => {
-    setSimulating(true);
-    setCollectMessage(null);
-    try {
-      const res = await incidentsApi.simulateAssessment(summary?.hostname || undefined);
-      setCollectMessage(`Assessment Scenario simulated! Unified Incident (${res.severity}) created: 10:00 AM & 10:05 AM metrics correlated with LangGraph AI Analysis.`);
-      refreshSummary();
-      refreshTimeseries();
-      refreshIncidents();
-    } catch (err: any) {
-      setCollectMessage(err?.response?.data?.detail || err?.message || 'Failed to simulate assessment scenario.');
-    } finally {
-      setSimulating(false);
-      setTimeout(() => setCollectMessage(null), 8000);
     }
   };
 
@@ -243,25 +225,6 @@ export const Dashboard: React.FC = () => {
         </div>
         <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
           <button
-            id="simulate-assessment-btn"
-            className="btn btn-secondary btn-sm"
-            onClick={handleSimulateAssessment}
-            disabled={simulating || collecting || resetting}
-            title="Simulate 10:00 AM -> 10:05 AM Multi-Metric Escalation with LangGraph Analysis"
-            style={{
-              borderColor: 'rgba(99, 102, 241, 0.45)',
-              background: 'rgba(99, 102, 241, 0.12)',
-              color: '#818cf8',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '6px',
-              fontWeight: 600,
-            }}
-          >
-            <Zap size={14} className={simulating ? 'spin' : ''} />
-            <span>{simulating ? 'Simulating Scenario...' : 'Simulate Assessment Scenario'}</span>
-          </button>
-          <button
             id="configure-host-btn"
             className="btn btn-secondary btn-sm"
             onClick={() => {
@@ -277,7 +240,7 @@ export const Dashboard: React.FC = () => {
             id="reset-db-btn"
             className="btn btn-danger btn-sm"
             onClick={handleResetDatabase}
-            disabled={resetting || collecting || simulating}
+            disabled={resetting || collecting}
             title="Wipe all database records"
           >
             <Trash2 size={14} />
@@ -287,7 +250,7 @@ export const Dashboard: React.FC = () => {
             id="collect-now-btn"
             className="btn btn-primary"
             onClick={handleCollectNow}
-            disabled={collecting || resetting || simulating}
+            disabled={collecting || resetting}
           >
             <RefreshCw size={15} className={collecting ? 'spin' : ''} />
             {collecting ? 'Collecting via SSH...' : 'Collect Now'}
