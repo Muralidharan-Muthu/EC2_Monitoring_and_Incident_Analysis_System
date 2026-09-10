@@ -78,16 +78,72 @@ The **EC2 Monitoring and Incident Analysis System** solves this by implementing 
 
 ## 3. Architecture
 
-The system follows a strict unidirectional security boundary:
-```
-React Dashboard (Vite)
-        ↓ HTTP REST (/api/...)
-FastAPI Backend
-        ↓ SSH (:22) with Private Key
-AWS EC2 Ubuntu Host (Linux Commands)
+### System Architecture Diagram
+
+```mermaid
+graph TD
+    subgraph Client ["Frontend Layer (Browser)"]
+        UI["React 18 + Vite + TypeScript Dashboard"]
+        Charts["Recharts Metric Trends (Spline Gradients)"]
+        IncidentView["Executive Incident Detail & Action Center"]
+        UI --> Charts
+        UI --> IncidentView
+    end
+
+    subgraph BackendServer ["Backend Monitoring Server (FastAPI)"]
+        API["FastAPI REST Endpoints (/api/...)"]
+        
+        subgraph Ingestion ["Telemetry Ingestion & Quality"]
+            SSHClient["AsyncSSH Client (Session Reused)"]
+            Collectors["Linux Collectors: CPU, RAM, Disk, Load, Procs, Logs"]
+            Normalizer["Strict Null-Safe Normalizer (No Fake Zeros)"]
+            SSHClient --> Collectors --> Normalizer
+        end
+
+        subgraph DetectionEngine ["Deterministic Intelligence Engine"]
+            AnomalyDetector["Anomaly Detector (Warning & Critical Thresholds)"]
+            PersistenceTracker["Persistence Filter (N=3 Consecutive Samples)"]
+            CorrelationEngine["Incident Correlation Engine (5-Min Window)"]
+            Normalizer --> AnomalyDetector --> PersistenceTracker --> CorrelationEngine
+        end
+
+        subgraph AIWorkflow ["8-Node LangGraph Workflow"]
+            LG1["1. Context Collection"] --> LG2["2. Evidence Validation"]
+            LG2 --> LG3["3. Event Correlation"]
+            LG3 --> LG4["4. Severity Assessment"]
+            LG4 --> LG5["5. Probable Cause (Groq / Rule Fallback)"]
+            LG5 --> LG6["6. Remediation Actions"]
+            LG6 --> LG7["7. Executive Narrative"]
+            LG7 --> LG8["8. Schema Validation"]
+        end
+
+        CorrelationEngine -->|"Multi-Metric Incident"| LG1
+    end
+
+    subgraph TargetHost ["Monitored Infrastructure (AWS EC2)"]
+        EC2["Ubuntu 24.04 / 22.04 LTS (2 vCPU, EBS Root)"]
+        ProcFS["/proc/stat, /proc/loadavg, /proc/net/dev"]
+        SysTools["mpstat, free -m, df -P /, ps, journalctl"]
+        EC2 --> ProcFS
+        EC2 --> SysTools
+    end
+
+    subgraph Persistence ["Storage & AI Services"]
+        Supabase[("Supabase PostgreSQL (Schema: ec2_monitoring_working)")]
+        Groq["Groq Cloud LLM (qwen/qwen3.8-27b)"]
+    end
+
+    UI <-->|"HTTP REST (JSON)"| API
+    API --> Ingestion
+    Normalizer --> Supabase
+    CorrelationEngine --> Supabase
+    SSHClient <-->|"SSH (Port 22, Key Auth)"| EC2
+    LG5 <-->|"JSON API"| Groq
 ```
 
-The React frontend **NEVER** communicates directly with EC2 or holds SSH keys. The private `.pem` key remains strictly on the FastAPI server and is excluded from source control.
+The system enforces a strict unidirectional security boundary:
+- The React frontend **NEVER** communicates directly with EC2 and does not store SSH keys.
+- The private `.pem` key stays secured on the backend and is excluded from source control.
 
 ---
 
@@ -345,101 +401,161 @@ Every collection cycle (background or manual):
 
 ---
 
-## 17. Anomaly Detection
+## 17. Explanation of Approach: Anomaly Detection
 
-- Evaluates CPU, Memory, Disk, System Load, and Response Time against warning and critical thresholds.
-- **Strict Rule**: When a metric is `null`, anomaly evaluation is skipped. It is **never** assumed to be normal.
-- **Persistence**: Requires `ANOMALY_CONSECUTIVE_SAMPLES` (3) before marking an anomaly as persistent high.
-- **Trend Detection**: Flags deteriorating patterns (e.g. rising CPU across consecutive observations).
+The system uses a **multi-layered deterministic anomaly detection pipeline** designed specifically to avoid alert fatigue, false positives, and silent failures in cloud infrastructure:
+
+### 1. Agentless Telemetry Collection via Safe Linux Tools
+- Instead of requiring heavyweight daemon agents, the system securely executes lightweight POSIX-standard diagnostic tools (`mpstat`, `free -m`, `df -P /`, `cat /proc/loadavg`, `ps -eo ...`, `journalctl`) over a persistent SSH channel.
+- Each collector operates independently: a temporary failure in one command never blocks or corrupts other collectors.
+
+### 2. Strict Null Safety (No Fabricated Data)
+- In cloud systems, a failed metric collection (e.g. timeout or network hiccup) is **fundamentally different** from a healthy metric (`0%`).
+- If a collection fails or produces unparseable data, it is recorded and presented strictly as `null` (`"-"` in the UI).
+- The anomaly engine explicitly ignores `null` values without assuming normalcy, ensuring true zero-fabrication integrity.
+
+### 3. Configurable Multi-Tier Thresholds
+Metrics are evaluated against two deterministic thresholds:
+| Monitored Subsystem | Metric Key | Warning Threshold | Critical Threshold | Baseline Rationale |
+|---|---|---|---|---|
+| **CPU Saturation** | `cpu_usage` | `> 70.0%` | `> 90.0%` | High sustained CPU starves kernel interrupts and context switching. |
+| **Physical Memory** | `memory_usage` | `> 75.0%` | `> 90.0%` | Linux buffers/cache are treated as reclaimable; triggers when available RAM is depleted. |
+| **Root Disk Storage** | `disk_usage` | `> 80.0%` | `> 85.0% / 90.0%` | Prevents disk full lockups on the root partition (`/dev/root`). |
+| **System Load** | `load_1m` | `> Cores × 1.5` | `> Cores × 2.0` | Dynamically scaled to `nproc` (e.g. Load > 4.0 on a 2-core EC2 machine). |
+| **HTTP Latency** | `response_time_ms`| `> 1000 ms` | `> 2000 ms` | Detects user-facing degradation during backend compute starvation. |
+
+### 4. Sliding Persistence Filter (Anti-Flapping)
+- Single-sample spikes (such as a cron job or brief package update) are common on Linux servers and should not wake up on-call engineers.
+- An anomaly is marked as persistent only when it breaches thresholds across `ANOMALY_CONSECUTIVE_SAMPLES = 3` consecutive collection cycles (~60–90 seconds).
 
 ---
 
-## 18. Incident Correlation
+## 18. Explanation of Approach: Incident Correlation & Analysis
 
-When multiple anomalies occur concurrently within `CORRELATION_WINDOW_MINUTES` (5 mins):
-- They are grouped into **ONE** incident.
-- Deduplication key derived from `hostname + family` prevents duplicate `INC-001`, `INC-002` spam.
-- Severity levels: `LOW`, `MEDIUM`, `HIGH`, `CRITICAL`.
-- Auto-resolves after 10 minutes of healthy operating baselines.
+### The Problem: Alert Storming & Disjointed Notifications
+During real-world outages (e.g., memory exhaustion or CPU starvation), multiple symptoms trigger simultaneously:
+- A CPU spike causes processes to queue up, driving **System Load** to 4.8.
+- Worker threads starve, causing application **Response Time** to surge from 120ms to 2,500ms.
+- High memory pressure leads to disk paging and cache eviction.
+Traditional monitoring systems emit 4 or 5 separate alerts: one for CPU, one for RAM, one for Load, and one for Latency. On-call engineers are flooded with disjointed alerts without understanding the root cause.
+
+### The Solution: Temporal & Semantic Incident Correlation
+Our system correlates related events into **one unified incident**:
+
+1. **Sliding Temporal Window (`CORRELATION_WINDOW_MINUTES = 5`)**:
+   - Anomalies detected within a 5-minute sliding window on the same host are automatically evaluated for causal relationships.
+2. **Deduplication Key (`hostname + incident_family`)**:
+   - Creates a deterministic grouping key (e.g., `ip-172-31-3-102:resource_saturation`).
+   - If subsequent metrics breach thresholds 2 minutes later (e.g., Response Time spikes after CPU saturation), they are **appended to the existing incident** rather than spawning new duplicate incidents.
+3. **Composite Severity & Impact Scoring**:
+   - Evaluates multi-metric saturation:
+     - `CRITICAL`: Multiple interdependent subsystems saturated simultaneously (e.g. CPU + RAM + Disk).
+     - `HIGH`: Sustained critical breach of a single major resource.
+     - `MEDIUM`: Multiple warning-level anomalies.
+     - `LOW`: Isolated warning anomaly.
+4. **8-Node LangGraph AI Workflow with Groq (`qwen/qwen3.8-27b`)**:
+   - Executes an 8-node sequential StateGraph:
+     `Context -> Evidence -> Correlation -> Severity -> Probable Cause -> Recommendations -> Narrative -> Pydantic Validation`.
+   - Distinguishes observed facts from AI inference.
+   - Identifies specific culprit processes from `ps` evidence (e.g. `stress-ng-cpu consuming 94.3% CPU`).
+5. **Deterministic Rule Engine Fallback**:
+   - If Groq is unavailable, network is unreachable, or API quotas are exhausted, the system automatically switches to deterministic rule-based diagnosis. Monitoring and alerting **never fail**.
 
 ---
 
-## 19. LangGraph Workflow
+## 19. Technical Assessment Scenario Walkthrough
+
+The system was evaluated against the exact operational progression specified in the technical assessment:
+
+```
+[10:00 AM] Initial Saturation:
+  ● CPU Usage: 92% (CRITICAL)
+  ● Memory Usage: 88% (WARNING)
+  ● Disk Usage: 85% (WARNING)
+  ● System Load: High (3.5)
+  ↳ System Action: Anomaly detector flags 4 breaches. Correlation engine binds them 
+    into ONE incident (INC-1). No separate alerts created.
+
+[10:05 AM] Escalating Impact (5 minutes later):
+  ● CPU Usage: 96% (CRITICAL)
+  ● Memory Usage: 91% (CRITICAL)
+  ● Response Time: Increased to 2,500ms (CRITICAL)
+  ● System Load: Very High (4.8)
+  ↳ System Action: Recognized as the continuation of the existing incident. 
+    Incident INC-1 is updated with new metrics, elevated to CRITICAL severity, 
+    and AI root cause analysis diagnoses cascading host starvation caused by worker thread contention.
+```
+
+---
+
+## 20. LangGraph Workflow Structure
 
 The sequential 8-node LangGraph pipeline executes:
 ```
 START
   ↓
-[1] Collect Incident Context  (app/ai/nodes/context.py)
+[1] Collect Incident Context   (app/ai/nodes/context.py)
   ↓
-[2] Validate Evidence         (app/ai/nodes/evidence.py)
+[2] Validate Evidence          (app/ai/nodes/evidence.py)
   ↓
-[3] Correlate Related Events  (app/ai/nodes/correlation.py)
+[3] Correlate Related Events   (app/ai/nodes/correlation.py)
   ↓
-[4] Assess Severity           (app/ai/nodes/severity.py)
+[4] Assess Severity            (app/ai/nodes/severity.py)
   ↓
-[5] Determine Probable Cause  (app/ai/nodes/root_cause.py)
+[5] Determine Probable Cause   (app/ai/nodes/root_cause.py)  <--- Groq LLM / Rule Fallback
   ↓
-[6] Generate Recommendations  (app/ai/nodes/recommendation.py)
+[6] Generate Recommendations   (app/ai/nodes/recommendation.py)
   ↓
-[7] Generate Incident Summary (app/ai/nodes/summary.py)
+[7] Generate Incident Summary  (app/ai/nodes/summary.py)
   ↓
-[8] Validate Structured Output(app/ai/nodes/validation.py)
+[8] Validate Structured Output (app/ai/nodes/validation.py)  <--- Pydantic Schema Validation
   ↓
 END
 ```
 
 ---
 
-## 20. Groq Analysis
+## 21. Automated Testing
 
-- Invoked during Node 5 (`determine_root_cause`) and Node 6 (`generate_recommendations`).
-- Strict prompt instructions:
-  1. Base analysis ONLY on supplied evidence.
-  2. Never claim certainty; use "Likely", "Evidence suggests".
-  3. Output valid JSON adhering to `LLMAnalysisOutput` schema.
-- Automatic fallback: If Groq rate limits or fails, `analysis_source="rule_engine"` is activated.
-
----
-
-## 21. Testing
-
-The comprehensive test suite covers 59 automated test cases:
+The comprehensive test suite covers 49 automated test cases across all critical subsystems:
 ```bash
 cd backend
 .\venv\Scripts\python.exe -m pytest app/tests/ -v
 ```
 
 ### Verified Test Categories:
-- SSH execution & failure handling.
-- Collectors parsing: CPU, Memory, Disk, Load, Processes, Network, Logs.
-- Strict null preservation: no fake zeros.
-- Data quality states: COMPLETE, PARTIAL, FAILED.
-- Anomaly persistence tracking and null skipping.
-- Incident correlation and deduplication.
-- 4-tier severity evaluation.
-- Incident lifecycle & auto-resolution.
-- LangGraph 8-node workflow with Groq fallback.
-- FastAPI REST endpoints.
+- **Remote SSH & Collectors**: `mpstat`, `free -m`, `df -P /`, `loadavg`, `ps`, `journalctl`.
+- **Strict Null Safety**: Unmeasured metrics return `null`, never `0%`.
+- **Anomaly Detection**: Warnings, criticals, consecutive persistence, and null skipping.
+- **Incident Correlation**: Multi-anomaly grouping, temporal window, deduplication key.
+- **Assessment Scenario**: Exact 10:00 AM -> 10:05 AM cascade evaluation.
+- **LangGraph & Groq**: 8-node pipeline, JSON schema compliance, deterministic fallback.
 
 ---
 
-## 22. Stress Testing
+## 22. Stress Testing & Demonstration Suite
 
-For demonstration and testing purposes, you can generate simulated resource pressure on the EC2 machine:
+An automated interactive CLI suite is provided to trigger realistic incidents on your AWS EC2 instance:
 
-```bash
-# CPU Stress (2 cores for 120s)
-stress-ng --cpu 2 --timeout 120s
-
-# Memory Stress (80% of RAM for 120s)
-stress-ng --vm 1 --vm-bytes 80% --timeout 120s
-
-# Combined Resource Saturation
-stress-ng --cpu 2 --vm 1 --vm-bytes 70% --timeout 120s
+### Running from Windows:
+```cmd
+.\stress.bat
 ```
 
-*Note: Stress testing tools are for demonstration only and are not part of production monitoring.*
+### Running from Linux / Git Bash:
+```bash
+./stress_ec2.sh
+```
+
+### Available Stress Scenarios:
+| Option | Scenario | Description | Target Impact |
+|---|---|---|---|
+| **`[1 / A]`** | **Scenario A: CPU Saturation** | 2 cores pinned at 97% load | Flags `CPU_CRITICAL (>90%)` |
+| **`[2 / B]`** | **Scenario B: RAM Saturation** | Drops cache & allocates 95% RAM | Flags `MEMORY_CRITICAL (>90%)` |
+| **`[3 / C]`** | **Scenario C: Root Disk Saturation** | Allocates 13.3 GB in `/var/tmp` on `/dev/root` | Flags `DISK_CRITICAL (>90%)` |
+| **`[4 / D]`** | **Scenario D: Assessment Multi-Resource** | CPU 96% + RAM 91% concurrently | Single Correlated Incident + LangGraph AI |
+| **`[5 / E]`** | **Scenario E: Extreme Triple Saturation** | CPU + RAM + Root Disk simultaneously | All 3 subsystems saturated concurrently |
+| **`[6 / K]`** | **Stop All / Clean** | Kills `stress-ng` & removes temporary disk files | Restores free space & healthy baseline |
 
 ---
 

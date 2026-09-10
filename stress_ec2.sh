@@ -19,7 +19,7 @@ RESET='\033[0m'
 
 # Default stress duration in seconds (3 minutes allows ~6-9 collection cycles at 20-30s intervals)
 DEFAULT_DURATION=180
-DISK_STRESS_FILE="/tmp/disk_stress.img"
+DISK_STRESS_FILE="/var/tmp/disk_stress.img"
 
 # ------------------------------------------------------------------------------
 # Auto-detect local Windows environment (Git Bash / MINGW / MSYS / Cygwin)
@@ -65,10 +65,12 @@ fi
 cleanup() {
     echo -e "\n${YELLOW}[!] Cleaning up resources...${RESET}"
     pkill -9 -f stress-ng 2>/dev/null || true
-    if [ -f "$DISK_STRESS_FILE" ]; then
-        echo -e "${YELLOW}[!] Removing temporary disk stress file: $DISK_STRESS_FILE${RESET}"
-        rm -f "$DISK_STRESS_FILE" 2>/dev/null || true
-    fi
+    for f in "$DISK_STRESS_FILE" "/tmp/disk_stress.img" "/var/tmp/disk_stress.img"; do
+        if [ -f "$f" ]; then
+            echo -e "${YELLOW}[!] Removing temporary disk stress file: $f${RESET}"
+            rm -f "$f" 2>/dev/null || true
+        fi
+    done
     echo -e "${GREEN}[OK] System restored to normal state.${RESET}"
 }
 
@@ -160,7 +162,8 @@ run_ram_stress() {
     echo -e "  • Backend Anomaly: MEMORY_CRITICAL (>90% threshold)"
     echo -e "  • Dashboard Action: Watch Live Memory usage gauge rise to ~95%!\n"
     
-    stress-ng --vm 1 --vm-bytes 96% --vm-hang "$duration" --timeout "${duration}s" --metrics-brief
+    sudo sync && echo 3 | sudo tee /proc/sys/vm/drop_caches >/dev/null 2>&1 || true
+    stress-ng --vm 1 --vm-bytes 95% --vm-hang "$duration" --timeout "${duration}s" --metrics-brief
     echo -e "\n${GREEN}[OK] Scenario B completed.${RESET}"
 }
 
@@ -249,7 +252,8 @@ run_multi_stress() {
     echo -e "     5. Frontend Dashboard displays AI Diagnosis & Remediation Cards!"
     echo -e "${MAGENTA}------------------------------------------------------------------------${RESET}\n"
     
-    stress-ng --cpu "$cores" --cpu-load 96 --vm 1 --vm-bytes 96% --vm-hang "$duration" --timeout "${duration}s" --metrics-brief
+    sudo sync && echo 3 | sudo tee /proc/sys/vm/drop_caches >/dev/null 2>&1 || true
+    stress-ng --cpu "$cores" --cpu-load 96 --vm 1 --vm-bytes 95% --vm-hang "$duration" --timeout "${duration}s" --metrics-brief
     echo -e "\n${GREEN}[OK] Scenario D completed! Check frontend dashboard for generated Incident & AI report.${RESET}"
 }
 
@@ -264,28 +268,36 @@ run_all_stress() {
 
     echo -e "\n${BOLD}${RED}>>> SCENARIO E: Triple Saturation (CPU + RAM + Disk Storage)${RESET}\n"
     
-    # Temporarily allocate disk space in background
+    # Temporarily allocate disk space on root filesystem
     local total_kb=$(df -k / | awk 'NR==2 {print $2}')
     local used_kb=$(df -k / | awk 'NR==2 {print $3}')
     local avail_kb=$(df -k / | awk 'NR==2 {print $4}')
-    local target_used_kb=$(( total_kb * 91 / 100 ))
+    local target_used_kb=$(( total_kb * 92 / 100 ))
     local needed_kb=$(( target_used_kb - used_kb ))
-    local max_alloc_kb=$(( avail_kb - 300 * 1024 ))
+    local safety_buffer_kb=$(( 250 * 1024 ))
+    local max_alloc_kb=$(( avail_kb - safety_buffer_kb ))
     
     if [ "$needed_kb" -gt 0 ]; then
         [ "$needed_kb" -gt "$max_alloc_kb" ] && needed_kb=$max_alloc_kb
         local needed_mb=$(( needed_kb / 1024 ))
         if [ "$needed_mb" -gt 50 ]; then
-            echo -e "${YELLOW}[*] Allocating ${needed_mb}MB disk file...${RESET}"
+            echo -e "${YELLOW}[*] Allocating ${needed_mb}MB disk file in /var/tmp to saturate root partition past 90%...${RESET}"
             fallocate -l "${needed_mb}M" "$DISK_STRESS_FILE" 2>/dev/null || dd if=/dev/zero of="$DISK_STRESS_FILE" bs=1M count="$needed_mb" status=none
+            echo -e "${GREEN}[OK] Disk capacity updated:${RESET}"
+            df -h /
         fi
     fi
 
-    # Run combined stress-ng
-    stress-ng --cpu "$cores" --cpu-load 96 --vm 1 --vm-bytes 96% --vm-hang "$duration" --timeout "${duration}s" --metrics-brief
+    # Drop caches for maximum RAM saturation
+    sudo sync && echo 3 | sudo tee /proc/sys/vm/drop_caches >/dev/null 2>&1 || true
+
+    # Run combined stress-ng (CPU + RAM)
+    stress-ng --cpu "$cores" --cpu-load 96 --vm 1 --vm-bytes 95% --vm-hang "$duration" --timeout "${duration}s" --metrics-brief
     
     # Clean up disk
     rm -f "$DISK_STRESS_FILE" 2>/dev/null || true
+    echo -e "${GREEN}[OK] Disk space restored:${RESET}"
+    df -h /
     echo -e "\n${GREEN}[OK] Scenario E completed.${RESET}"
 }
 
@@ -374,7 +386,7 @@ case "${1:-}" in
         echo "  disk      Saturate Root Disk partition past 90%"
         echo "  multi     Assessment Scenario: CPU 96% + RAM 91% (Triggers AI workflow)"
         echo "  all       Triple saturation: CPU + RAM + Disk"
-        echo "  stop      Kill all stress-ng processes and remove /tmp/disk_stress.img"
+        echo "  stop      Kill all stress-ng processes and clean up temporary disk files"
         echo ""
         echo "If run without arguments, launches interactive menu."
         ;;

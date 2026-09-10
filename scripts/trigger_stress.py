@@ -227,14 +227,13 @@ def print_menu():
 ========================================================================
            EC2 INCIDENT TESTING & RESOURCE STRESS GENERATOR
 ========================================================================
-Select a scenario to execute remotely on EC2 or simulate locally:
+Select a scenario to execute remotely on EC2 via SSH:
 
   [1 / A] Scenario A: Stress CPU to 97%            (Flags CPU_CRITICAL > 90%)
   [2 / B] Scenario B: Stress Memory (RAM) to 92%+  (Flags MEMORY_CRITICAL > 90%)
   [3 / C] Scenario C: Stress Disk Storage to >90% (Flags DISK_CRITICAL > 90%)
   [4 / D] Scenario D: Assessment Multi-Resource   (CPU 96% + RAM 91% -> LangGraph AI)
   [5 / E] Scenario E: Extreme Triple Saturation    (CPU + RAM + Disk)
-  [7 / S] Simulate Assessment Scenario             (10:00 AM -> 10:05 AM Multi-Metric AI)
   [6 / K] Stop All:   Kill stress-ng & clean disk files
   [0 / Q] Exit
 ========================================================================
@@ -299,7 +298,7 @@ def main():
             asyncio.run(run_stress_remote(scenario, duration))
     else:
         print_menu()
-        raw_choice = input("Enter choice [0-7 / A-E / S] (Default: 4): ").strip().lower() or "4"
+        raw_choice = input("Enter choice [0-6 / A-E / K] (Default: 4): ").strip().lower() or "4"
         scenario_map = {
             "1": "cpu", "a": "cpu",
             "2": "ram", "b": "ram",
@@ -307,7 +306,6 @@ def main():
             "4": "multi", "d": "multi",
             "5": "all", "e": "all",
             "6": "stop", "k": "stop", "stop": "stop",
-            "7": "simulate", "s": "simulate", "sim": "simulate",
         }
         if raw_choice in ("0", "q", "exit"):
             print("Exiting.")
@@ -315,12 +313,10 @@ def main():
 
         scenario = scenario_map.get(raw_choice)
         if not scenario:
-            print(f"[!] Invalid choice '{raw_choice}'. Please choose 1-7 or A-E/S.")
+            print(f"[!] Invalid choice '{raw_choice}'. Please choose 1-6 or A-E/K.")
             return
 
-        if scenario == "simulate":
-            asyncio.run(run_assessment_simulation_cli())
-        elif scenario != "stop":
+        if scenario != "stop":
             dur_input = input(f"Enter duration in seconds (Default: 180): ").strip()
             duration = int(dur_input) if dur_input.isdigit() else 180
             asyncio.run(run_stress_remote(scenario, duration))

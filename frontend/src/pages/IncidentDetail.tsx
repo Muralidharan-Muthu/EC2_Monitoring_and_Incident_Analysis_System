@@ -317,47 +317,24 @@ export const IncidentDetail: React.FC = () => {
         })}
       </div>
 
-      {/* Main Content Layout with Responsive Sidebar */}
+      {/* Main Content Layout with Focused Sidebar */}
       <div className="detail-grid">
         <div className="detail-main">
-          {/* Executive Causal Relationship Banner */}
-          <div className="causal-banner" id="causal-banner">
-            <div className="causal-banner-header">
-              <h2 className="causal-banner-title">
-                <CheckCircle2 size={18} />
-                <span>Events Confirmed Related — Single Unified Incident</span>
-              </h2>
-              <span className="causal-banner-badge">No Alert Storming</span>
-            </div>
-            <p className="causal-banner-body">
-              {incident.event_relationship || analysis?.event_relationship || (
-                'Cross-metric correlation confirmed cascading compute failure: simultaneous saturation of CPU (96%) and Memory (91%) starved system worker threads, driving System Load to 4.80 and directly triggering the critical 2,500ms application Response Time latency spike. All events are handled as a single unified incident.'
-              )}
-            </p>
-          </div>
-
-          {/* Clean Tabbed Navigation */}
+          {/* Clean 3-Tab Navigation */}
           <nav className="incident-tabs-nav" aria-label="Incident Sections">
             <button
               className={`incident-tab-btn ${activeTab === 'overview' ? 'active' : ''}`}
               onClick={() => setActiveTab('overview')}
             >
               <Zap size={14} />
-              <span>Root Cause & Mitigation</span>
+              <span>Root Cause & Fix</span>
             </button>
             <button
               className={`incident-tab-btn ${activeTab === 'progression' ? 'active' : ''}`}
               onClick={() => setActiveTab('progression')}
             >
               <TrendingUp size={14} />
-              <span>Telemetry Progression</span>
-            </button>
-            <button
-              className={`incident-tab-btn ${activeTab === 'timeline' ? 'active' : ''}`}
-              onClick={() => setActiveTab('timeline')}
-            >
-              <Clock size={14} />
-              <span>Operational Timeline</span>
+              <span>Telemetry & Timeline</span>
             </button>
             <button
               className={`incident-tab-btn ${activeTab === 'anomalies' ? 'active' : ''}`}
@@ -369,24 +346,40 @@ export const IncidentDetail: React.FC = () => {
             </button>
           </nav>
 
-          {/* TAB 1: ROOT CAUSE & ACTION ITEMS */}
+          {/* TAB 1: ROOT CAUSE & ACTION ITEMS (Clean & Unified) */}
           {activeTab === 'overview' && (
             <div className="tab-content" id="tab-overview">
-              {/* Probable Cause & Identified Culprits */}
+              {/* Unified Root Cause & Correlation Card */}
               <section className="detail-section" style={{ marginBottom: '16px' }}>
-                <h3 className="section-title" style={{ fontSize: '15px', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <AlertTriangle size={16} color="#f59e0b" />
-                  <span>Probable Root Cause</span>
-                </h3>
-                <p style={{ fontSize: '14px', lineHeight: '1.6', color: 'var(--color-text-primary)', margin: '0 0 14px 0' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                  <h3 className="section-title" style={{ fontSize: '15px', margin: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <AlertTriangle size={16} color="#f59e0b" />
+                    <span>Incident Diagnosis & Root Cause</span>
+                  </h3>
+                  <span className="causal-banner-badge">Single Correlated Incident</span>
+                </div>
+
+                <p style={{ fontSize: '14px', lineHeight: '1.6', color: 'var(--color-text-primary)', margin: '0 0 12px 0' }}>
                   {incident.probable_cause || 'Comprehensive resource saturation affecting compute cores and physical memory simultaneously.'}
                 </p>
 
-                <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: '12px' }}>
-                  <span style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--color-text-secondary)', letterSpacing: '0.05em' }}>
-                    Identified High-Load Processes (Evidence)
+                {/* Event Correlation Explanation */}
+                <div style={{ background: 'rgba(16, 185, 129, 0.08)', border: '1px solid rgba(16, 185, 129, 0.25)', borderRadius: '8px', padding: '10px 14px', marginBottom: '14px' }}>
+                  <span style={{ fontSize: '12px', fontWeight: 600, color: '#10b981', display: 'flex', alignItems: 'center', gap: '5px', marginBottom: '4px' }}>
+                    <CheckCircle2 size={13} />
+                    <span>Cross-Metric Correlation</span>
                   </span>
-                  {detectedCulprits.length > 0 ? (
+                  <p style={{ fontSize: '12.5px', color: 'var(--color-text-secondary)', margin: 0, lineHeight: '1.5' }}>
+                    {incident.event_relationship || analysis?.event_relationship || 'Multiple interdependent subsystems breached thresholds concurrently on the same host within the correlation window.'}
+                  </p>
+                </div>
+
+                {/* Culprit Process Badges */}
+                {detectedCulprits.length > 0 && (
+                  <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: '12px' }}>
+                    <span style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--color-text-secondary)', letterSpacing: '0.05em' }}>
+                      Identified Process Culprit(s)
+                    </span>
                     <div className="culprit-grid">
                       {detectedCulprits.map((c, idx) => (
                         <div key={idx} className="culprit-card">
@@ -398,34 +391,18 @@ export const IncidentDetail: React.FC = () => {
                         </div>
                       ))}
                     </div>
-                  ) : analysis?.evidence && analysis.evidence.length > 0 ? (
-                    <div className="culprit-grid">
-                      {analysis.evidence.map((ev, idx) => (
-                        <div key={idx} className="culprit-card">
-                          <div>
-                            <div className="culprit-name">{ev.includes("'") ? ev.split("'")[1] : 'Identified Workload'}</div>
-                            <span style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>{ev}</span>
-                          </div>
-                          <span className="culprit-stat cpu">Active</span>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)', margin: '8px 0 0 0' }}>
-                      Telemetry evidence confirmed from top active Linux processes.
-                    </p>
-                  )}
-                </div>
+                  </div>
+                )}
               </section>
 
-              {/* Recommended Action Checklist */}
+              {/* Actionable Remediation Checklist */}
               <section className="detail-section" style={{ marginBottom: '16px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
                   <h3 className="section-title" style={{ fontSize: '15px', margin: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
                     <CheckCircle2 size={16} color="#10b981" />
-                    <span>Actionable Remediation Checklist</span>
+                    <span>Remediation Commands</span>
                   </h3>
-                  <span style={{ fontSize: '12px', color: 'var(--color-text-muted)' }}>Ready for execution</span>
+                  <span style={{ fontSize: '12px', color: 'var(--color-text-muted)' }}>Execute to restore stability</span>
                 </div>
 
                 <div className="action-checklist">
@@ -486,26 +463,22 @@ export const IncidentDetail: React.FC = () => {
             </div>
           )}
 
-          {/* TAB 2: TELEMETRY PROGRESSION */}
+          {/* TAB 2: TELEMETRY & TIMELINE (Combined & Clean) */}
           {activeTab === 'progression' && (
             <div className="tab-content" id="tab-progression">
-              <section className="detail-section">
+              <section className="detail-section" style={{ marginBottom: '16px' }}>
                 <h3 className="section-title" style={{ fontSize: '15px', marginBottom: '8px' }}>
-                  Incident Telemetry Progression & Escalation
+                  Metric Escalation & Peak Readings
                 </h3>
-                <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)', marginBottom: '14px' }}>
-                  Tracks the chronological progression of each anomalous metric observed during this incident from initial detection to latest reading.
-                </p>
-
                 <div className="progression-table-wrapper">
                   <table className="progression-table">
                     <thead>
                       <tr>
                         <th>Metric Name</th>
                         <th>Initial Breach</th>
-                        <th>Peak / Latest Observed</th>
-                        <th>Progression / Delta</th>
-                        <th>Status</th>
+                        <th>Peak / Latest</th>
+                        <th>Shift</th>
+                        <th>Severity</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -530,19 +503,11 @@ export const IncidentDetail: React.FC = () => {
                   </table>
                 </div>
               </section>
-            </div>
-          )}
 
-          {/* TAB 3: OPERATIONAL TIMELINE */}
-          {activeTab === 'timeline' && (
-            <div className="tab-content" id="tab-timeline">
               <section className="detail-section">
                 <h3 className="section-title" style={{ fontSize: '15px', marginBottom: '8px' }}>
-                  Chronological Milestone Timeline
+                  Operational Milestone Timeline
                 </h3>
-                <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)', marginBottom: '16px' }}>
-                  Clear lifecycle milestones tracking incident detection, temporal deduplication, and AI synthesis.
-                </p>
                 <IncidentTimeline
                   startedAt={incident.started_at}
                   lastSeenAt={incident.last_seen_at || incident.started_at}
@@ -555,13 +520,13 @@ export const IncidentDetail: React.FC = () => {
             </div>
           )}
 
-          {/* TAB 4: COMPACT ANOMALY LOG TABLE */}
+          {/* TAB 3: COMPACT ANOMALY LOG TABLE */}
           {activeTab === 'anomalies' && (
             <div className="tab-content" id="tab-anomalies">
               <section className="detail-section">
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
                   <h3 className="section-title" style={{ fontSize: '15px', margin: 0 }}>
-                    Detected Anomaly Records ({anomalies.length})
+                    Underlying Anomaly Records ({anomalies.length})
                   </h3>
                   <span style={{ fontSize: '12px', color: 'var(--color-text-muted)' }}>
                     Correlated into 1 Incident
@@ -601,32 +566,8 @@ export const IncidentDetail: React.FC = () => {
           )}
         </div>
 
-        {/* Right Sidebar — Clean, Focused, & Concise */}
+        {/* Right Sidebar — Clean, Focused, & Minimal (No Duplicate Briefing) */}
         <aside className="detail-sidebar">
-          {/* Executive Summary Card (Concise 2-sentence brief, NO WALL OF TEXT) */}
-          <div className="sidebar-card">
-            <h4 className="sidebar-title">Executive Briefing</h4>
-            <p className="sidebar-text" style={{ fontSize: '13px', lineHeight: '1.5', margin: 0 }}>
-              {conciseSummary}
-            </p>
-          </div>
-
-          {/* AI Confidence Card */}
-          <div className="sidebar-card sidebar-ai" style={{ borderLeft: '4px solid #8b5cf6' }}>
-            <h4 className="sidebar-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span>AI Evaluation</span>
-              <span style={{ fontSize: '10px', textTransform: 'uppercase', background: 'rgba(139, 92, 246, 0.15)', color: '#8b5cf6', padding: '1px 6px', borderRadius: '4px' }}>
-                {analysis?.analysis_source === 'groq' ? 'Groq LLM' : 'Rule Engine'}
-              </span>
-            </h4>
-            <div className="confidence-display" style={{ fontSize: '26px', margin: '4px 0 2px 0' }}>
-              {((analysis?.confidence || incident.llm_confidence || 0.95) * 100).toFixed(0)}%
-            </div>
-            <span style={{ fontSize: '11px', color: 'var(--color-text-secondary)' }}>
-              Confidence · Model: {analysis?.model_name || 'qwen/qwen3.8-27b'}
-            </span>
-          </div>
-
           {/* Quick Lifecycle Status Actions */}
           <div className="sidebar-card">
             <h4 className="sidebar-title">Status Actions</h4>
@@ -660,13 +601,41 @@ export const IncidentDetail: React.FC = () => {
             </div>
           </div>
 
+          {/* AI Evaluation */}
+          <div className="sidebar-card sidebar-ai" style={{ borderLeft: '4px solid #8b5cf6' }}>
+            <h4 className="sidebar-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span>AI Evaluation</span>
+              <span style={{ fontSize: '10px', textTransform: 'uppercase', background: 'rgba(139, 92, 246, 0.15)', color: '#8b5cf6', padding: '1px 6px', borderRadius: '4px' }}>
+                {analysis?.analysis_source === 'groq' ? 'Groq LLM' : 'Rule Engine'}
+              </span>
+            </h4>
+            <div className="confidence-display" style={{ fontSize: '26px', margin: '4px 0 2px 0' }}>
+              {((analysis?.confidence || incident.llm_confidence || 0.95) * 100).toFixed(0)}%
+            </div>
+            <span style={{ fontSize: '11px', color: 'var(--color-text-secondary)' }}>
+              Model: {analysis?.model_name || 'qwen/qwen3.8-27b'}
+            </span>
+          </div>
+
           {/* Incident Specifications */}
           <div className="sidebar-card">
-            <h4 className="sidebar-title">Incident Specifications</h4>
+            <h4 className="sidebar-title">Incident Details</h4>
             <dl className="detail-list">
+              <dt>Monitored Host</dt>
+              <dd style={{ fontSize: '12px' }}>{incident.hostname}</dd>
+
+              <dt>Incident Started</dt>
+              <dd>{formatDateTime(incident.started_at)}</dd>
+
+              <dt>Last Telemetry</dt>
+              <dd>{formatDateTime(incident.last_seen_at || incident.started_at)}</dd>
+
+              <dt>Correlated Anomalies</dt>
+              <dd style={{ fontWeight: 600 }}>{anomalies.length} observations</dd>
+
               <dt>Incident ID</dt>
               <dd className="mono" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <span>{incident.id.slice(0, 16)}...</span>
+                <span>{incident.id.slice(0, 12)}...</span>
                 <button
                   onClick={() => handleCopy(incident.id, 'Incident ID copied')}
                   className="copy-btn"
@@ -675,30 +644,6 @@ export const IncidentDetail: React.FC = () => {
                   <Copy size={11} />
                 </button>
               </dd>
-
-              <dt>Deduplication Key</dt>
-              <dd className="mono" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <span>{incident.incident_key.slice(0, 16)}...</span>
-                <button
-                  onClick={() => handleCopy(incident.incident_key, 'Key copied')}
-                  className="copy-btn"
-                  style={{ padding: '1px 4px' }}
-                >
-                  <Copy size={11} />
-                </button>
-              </dd>
-
-              <dt>Monitored Host</dt>
-              <dd style={{ fontSize: '12px' }}>{incident.hostname}</dd>
-
-              <dt>Created Time</dt>
-              <dd>{formatDateTime(incident.created_at)}</dd>
-
-              <dt>Last Telemetry</dt>
-              <dd>{formatDateTime(incident.last_seen_at || incident.started_at)}</dd>
-
-              <dt>Total Correlated Anomalies</dt>
-              <dd style={{ fontWeight: 600 }}>{anomalies.length} observations</dd>
             </dl>
           </div>
         </aside>
