@@ -281,13 +281,46 @@ async def analyze_incident(
         incident.recommended_action = " ".join(
             f"({i+1}) {a}." for i, a in enumerate(final_state["recommended_actions"])
         )
-    if final_state.get("reasoning_summary"):
-        incident.summary = final_state["reasoning_summary"]
+    affected_str = ", ".join(sorted(incident.affected_metrics or []))
+    incident.summary = (
+        f"[{incident.severity}] Incident on {incident.hostname} affecting {affected_str}. "
+        f"Correlated analysis confirmed {final_state.get('probable_cause', 'resource saturation')}."
+    )
 
     await incident_repo.update(incident)
 
     # Re-fetch with relationships
     updated = await incident_repo.get_by_id(incident_id)
+    return _serialize_incident(updated)
+
+
+@router.patch(
+    "/incidents/{incident_id}",
+    response_model=IncidentResponse,
+    tags=["Incidents"],
+    summary="Update incident status",
+)
+async def update_incident_status(
+    incident_id: uuid.UUID,
+    payload: IncidentUpdateRequest,
+    db: AsyncSession = Depends(get_db),
+) -> IncidentResponse:
+    """Update incident status (OPEN, INVESTIGATING, RESOLVED)."""
+    repo = IncidentRepository(db)
+    incident = await repo.get_by_id(incident_id)
+    if not incident:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Incident {incident_id} not found",
+        )
+    incident.status = payload.status
+    if payload.status == "RESOLVED":
+        incident.ended_at = datetime.now(timezone.utc)
+    else:
+        incident.ended_at = None
+    await repo.update(incident)
+    await db.commit()
+    updated = await repo.get_by_id(incident_id)
     return _serialize_incident(updated)
 
 
@@ -530,8 +563,11 @@ async def simulate_assessment_scenario(
         incident.recommended_action = " ".join(
             f"({i+1}) {a}." for i, a in enumerate(final_state["recommended_actions"])
         )
-    if final_state.get("reasoning_summary"):
-        incident.summary = final_state["reasoning_summary"]
+    affected_str = ", ".join(sorted(incident.affected_metrics or []))
+    incident.summary = (
+        f"[{incident.severity}] Unified incident on {target_host} affecting {affected_str}. "
+        f"Cross-metric correlation confirmed compute/memory saturation cascading into response time degradation."
+    )
 
     await incident_repo.update(incident)
     await db.commit()

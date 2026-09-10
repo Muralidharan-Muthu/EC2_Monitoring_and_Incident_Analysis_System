@@ -42,6 +42,13 @@ export const incidentsApi = {
     );
     return response.data;
   },
+
+  updateStatus: async (incidentId: string, status: string): Promise<Incident> => {
+    const response = await apiClient.patch<Incident>(`/api/incidents/${incidentId}`, {
+      status,
+    });
+    return response.data;
+  },
 };
 
 export const anomaliesApi = {

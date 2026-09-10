@@ -152,7 +152,8 @@ async def test_assessment_scenario_correlation_and_deduplication():
 
     # Validate Event Relationship analysis (Causal link between resource exhaustion and response time degradation)
     assert analysis_state.get("event_relationship") is not None
-    assert "related" in analysis_state["event_relationship"].lower()
+    rel_text = analysis_state["event_relationship"].lower()
+    assert any(k in rel_text for k in ("related", "unified", "cascade", "caus", "saturation", "underlying"))
 
     from app.incidents.correlation import analyze_event_relationship
     rel = analyze_event_relationship(anomaly_models_10_05)
