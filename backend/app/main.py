@@ -25,6 +25,43 @@ logger = get_logger(__name__)
 settings = get_settings()
 
 
+def _discover_ec2_host_via_boto3() -> str | None:
+    """
+    Use boto3 to find the first running EC2 instance's public DNS in the
+    configured AWS region. Called at startup when EC2_HOST is not set in .env.
+    Returns the public DNS/IP string, or None if none found or credentials missing.
+    """
+    try:
+        import boto3  # type: ignore
+
+        session_kwargs: dict = {"region_name": settings.aws_region or "ap-south-1"}
+        if settings.aws_access_key_id and settings.aws_secret_access_key:
+            session_kwargs["aws_access_key_id"] = settings.aws_access_key_id
+            session_kwargs["aws_secret_access_key"] = settings.aws_secret_access_key
+
+        session = boto3.Session(**session_kwargs)
+        ec2 = session.client("ec2")
+        response = ec2.describe_instances(
+            Filters=[{"Name": "instance-state-name", "Values": ["running"]}]
+        )
+        for reservation in response.get("Reservations", []):
+            for inst in reservation.get("Instances", []):
+                dns = inst.get("PublicDnsName") or inst.get("PublicIpAddress")
+                if dns:
+                    logger.info(
+                        "ec2_host_auto_discovered",
+                        instance_id=inst.get("InstanceId"),
+                        host=dns,
+                        region=settings.aws_region,
+                    )
+                    return dns
+        logger.warning("ec2_auto_discovery_no_running_instances", region=settings.aws_region)
+        return None
+    except Exception as exc:
+        logger.warning("ec2_auto_discovery_failed", error=str(exc))
+        return None
+
+
 async def _periodic_monitoring_loop(stop_event: asyncio.Event) -> None:
     """
     Background worker that runs every COLLECTION_INTERVAL_SECONDS.
@@ -87,7 +124,25 @@ async def lifespan(app: FastAPI):
     else:
         logger.info("ssh_key_validated", detail=key_msg)
 
-    # Start background SSH collection loop if EC2_HOST is configured
+    # ---- Auto-discover EC2 host via boto3 if not explicitly set ----
+    if not settings.ec2_host and (settings.aws_access_key_id or settings.aws_region):
+        discovered = _discover_ec2_host_via_boto3()
+        if discovered:
+            settings.ec2_host = discovered
+            # Persist discovered host to .env so it survives hot-reload
+            import re
+            from pathlib import Path
+            for candidate in (Path("backend/.env"), Path(".env")):
+                if candidate.exists():
+                    content = candidate.read_text(encoding="utf-8")
+                    if "EC2_HOST=" in content:
+                        content = re.sub(r"EC2_HOST=.*", f"EC2_HOST={discovered}", content)
+                    else:
+                        content += f"\nEC2_HOST={discovered}\n"
+                    candidate.write_text(content, encoding="utf-8")
+                    break
+
+    # Start background SSH collection loop if EC2_HOST is now known
     stop_event = asyncio.Event()
     bg_task = None
     if settings.ec2_host and settings.ec2_private_key_path:

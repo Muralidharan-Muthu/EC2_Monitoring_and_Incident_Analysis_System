@@ -73,6 +73,8 @@ class DashboardSummary(BaseModel):
     hostname: Optional[str]
     last_metric_at: Optional[str]
     ssh_status: Optional[str] = "CONNECTED"
+    ec2_host_configured: bool = False   # True if any host is known (configured or discovered)
+    aws_region: Optional[str] = None     # AWS region for console deep-links
 
 
 class TimeSeriesPoint(BaseModel):

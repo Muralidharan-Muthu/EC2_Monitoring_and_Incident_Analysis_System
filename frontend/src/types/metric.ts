@@ -56,6 +56,8 @@ export interface DashboardSummary {
   hostname: string | null;
   last_metric_at: string | null;
   ssh_status?: 'CONNECTED' | 'DEGRADED' | 'UNAVAILABLE' | string;
+  ec2_host_configured?: boolean;  // true = host is known; false = no instance discovered yet
+  aws_region?: string;             // e.g. "ap-south-1" — used to build AWS Console deep-link
 }
 
 export interface SystemStatus {

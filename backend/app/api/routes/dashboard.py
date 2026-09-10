@@ -93,9 +93,11 @@ async def get_dashboard_summary(
         latest_disk=active_metric.disk_usage if active_metric else None,
         latest_load_1m=active_metric.load_1m if active_metric else None,
         latest_response_time_ms=active_metric.response_time_ms if active_metric else None,
-        hostname=active_metric.hostname if active_metric else (latest.hostname if latest else (settings.ec2_host or "ec2-instance")),
+        hostname=active_metric.hostname if active_metric else (latest.hostname if latest else (settings.ec2_host or None)),
         last_metric_at=active_metric.timestamp.isoformat() if active_metric else (latest.timestamp.isoformat() if latest else None),
         ssh_status=ssh_status,
+        ec2_host_configured=bool(settings.ec2_host),
+        aws_region=settings.aws_region or "ap-south-1",
     )
 
 

@@ -14,6 +14,19 @@ import structlog
 from app.core.config import get_settings
 
 
+# Loggers that are too verbose at INFO — clamp them to WARNING
+_NOISY_LOGGERS = [
+    "asyncssh",        # SSH channel open/close/command spam
+    "asyncio",         # low-level event-loop internals
+    "uvicorn.access",  # per-request HTTP lines (already printed by uvicorn)
+    "botocore",        # AWS SDK wire-level details
+    "boto3",
+    "urllib3",
+    "httpcore",
+    "httpx",
+]
+
+
 def configure_logging() -> None:
     """
     Configure structlog and standard-library logging.
@@ -23,18 +36,15 @@ def configure_logging() -> None:
     settings = get_settings()
     log_level = getattr(logging, settings.log_level, logging.INFO)
 
-    # Configure the standard library logging to funnel into structlog
-    logging.basicConfig(
-        format="%(message)s",
-        stream=sys.stdout,
-        level=log_level,
-    )
+    # Silence noisy third-party loggers regardless of root level
+    for name in _NOISY_LOGGERS:
+        logging.getLogger(name).setLevel(logging.WARNING)
 
     shared_processors = [
         structlog.contextvars.merge_contextvars,
         structlog.stdlib.add_logger_name,
         structlog.stdlib.add_log_level,
-        structlog.processors.TimeStamper(fmt="iso"),
+        structlog.processors.TimeStamper(fmt="%H:%M:%S"),
         structlog.processors.StackInfoRenderer(),
     ]
 
@@ -48,10 +58,9 @@ def configure_logging() -> None:
         cache_logger_on_first_use=True,
     )
 
+    # Always use clean human-readable console output (not JSON blobs)
     formatter = structlog.stdlib.ProcessorFormatter(
-        processor=structlog.dev.ConsoleRenderer()
-        if settings.debug
-        else structlog.processors.JSONRenderer(),
+        processor=structlog.dev.ConsoleRenderer(colors=False),
         foreign_pre_chain=shared_processors,
     )
 

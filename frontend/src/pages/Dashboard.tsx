@@ -53,13 +53,13 @@ export const Dashboard: React.FC = () => {
   const [discoveredInstances, setDiscoveredInstances] = useState<EC2Instance[]>([]);
   const [autoConnecting, setAutoConnecting] = useState(false);
 
-  // Auto-refresh every 10 seconds per Section 42
+  // Auto-refresh every 20 seconds
   useEffect(() => {
     const timer = setInterval(() => {
       refreshSummary();
       refreshTimeseries();
       refreshIncidents();
-    }, 10000);
+    }, 20000);
     return () => clearInterval(timer);
   }, [refreshSummary, refreshTimeseries, refreshIncidents]);
 
@@ -257,8 +257,57 @@ export const Dashboard: React.FC = () => {
         </div>
       </div>
 
-      {/* Unreachable Warning Alert */}
-      {sshStatus === 'UNAVAILABLE' && (
+      {/* ── Banner: No running EC2 instances found ── */}
+      {sshStatus === 'UNAVAILABLE' && !summary?.ec2_host_configured && (
+        <div
+          className="alert"
+          style={{
+            background: 'rgba(251, 146, 60, 0.10)',
+            border: '1px solid rgba(251, 146, 60, 0.40)',
+            color: 'var(--color-warning, #fb923c)',
+            marginBottom: '16px',
+            borderRadius: '10px',
+            padding: '14px 18px',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
+            <Server size={20} style={{ flexShrink: 0, marginTop: '2px' }} />
+            <div style={{ flex: 1 }}>
+              <p style={{ margin: '0 0 4px', fontWeight: 700, fontSize: '14px' }}>
+                No Running EC2 Instances Found
+              </p>
+              <p style={{ margin: '0 0 12px', fontSize: '13px', opacity: 0.85 }}>
+                Your AWS account has no running instances in <strong>{summary?.aws_region || 'ap-south-1'}</strong>.
+                Start your EC2 instance from the AWS Console, then come back — the backend will auto-discover it within seconds.
+              </p>
+              <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                <a
+                  href={`https://${summary?.aws_region || 'ap-south-1'}.console.aws.amazon.com/ec2/home?region=${summary?.aws_region || 'ap-south-1'}#Instances:`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="btn btn-sm btn-primary"
+                  style={{ textDecoration: 'none' }}
+                >
+                  <Server size={13} />
+                  Open EC2 Instances in AWS Console ↗
+                </a>
+                <button
+                  className="btn btn-sm btn-secondary"
+                  onClick={handleAutoConnect}
+                  disabled={autoConnecting}
+                >
+                  {autoConnecting
+                    ? <><RefreshCw size={13} className="spin" /> Checking...</>
+                    : <><RefreshCw size={13} /> Refresh / Retry</>}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Banner: Instance known but SSH unreachable ── */}
+      {sshStatus === 'UNAVAILABLE' && summary?.ec2_host_configured && (
         <div
           className="alert"
           style={{
@@ -275,7 +324,9 @@ export const Dashboard: React.FC = () => {
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <AlertTriangle size={18} />
             <span>
-              <strong>EC2 Instance Unreachable via SSH.</strong> If you recently restarted your instance in AWS, AWS assigned a new Public IP. Click <strong>Configure Host</strong> to enter the new public DNS or IP.
+              <strong>EC2 Instance Unreachable via SSH.</strong> If you recently restarted your instance in AWS,
+              a new Public IP was assigned. Click <strong>Configure Host</strong> to re-connect,
+              or use <strong>Auto-Connect</strong> to discover the new address automatically.
             </span>
           </div>
           <button
