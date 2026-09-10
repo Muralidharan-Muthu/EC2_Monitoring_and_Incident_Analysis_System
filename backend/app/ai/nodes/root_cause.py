@@ -22,13 +22,15 @@ def determine_root_cause(state: IncidentAnalysisState) -> Dict[str, Any]:
     settings = get_settings()
     errors = list(state.get("errors", []))
 
-    # Fallback cause text
+    # Fallback cause and event relationship text
     fallback_cause = _generate_rule_based_cause(state)
+    fallback_relationship = _generate_rule_based_relationship(state)
 
     # If Groq is not configured, proceed directly with deterministic engine
     if not settings.groq_api_key:
         return {
             "probable_cause": fallback_cause,
+            "event_relationship": fallback_relationship,
             "analysis_source": "rule_engine",
             "model_name": None,
             "confidence": 0.85,
@@ -51,6 +53,7 @@ def determine_root_cause(state: IncidentAnalysisState) -> Dict[str, Any]:
         errors.append(f"Groq analysis fallback: {err}")
         return {
             "probable_cause": fallback_cause,
+            "event_relationship": fallback_relationship,
             "analysis_source": "rule_engine",
             "model_name": None,
             "confidence": 0.80,
@@ -58,18 +61,51 @@ def determine_root_cause(state: IncidentAnalysisState) -> Dict[str, Any]:
             "errors": errors,
         }
 
-    # Extract cause from Groq structured response
+    # Extract cause and event relationship from Groq structured response
     probable_cause = parsed_json.get("probable_cause") or fallback_cause
+    event_relationship = parsed_json.get("event_relationship") or fallback_relationship
     confidence = float(parsed_json.get("confidence", 0.90))
 
     return {
         "probable_cause": probable_cause,
+        "event_relationship": event_relationship,
         "analysis_source": "groq",
         "model_name": settings.groq_model,
         "confidence": confidence,
         "raw_llm_output": parsed_json,
         "errors": errors,
     }
+
+
+def _generate_rule_based_relationship(state: IncidentAnalysisState) -> str:
+    """Analyze whether multi-metric anomalies across time are causally linked."""
+    metrics = set(state.get("affected_metrics", []))
+
+    if {"cpu_usage", "memory_usage", "response_time_ms"}.issubset(metrics):
+        return (
+            "Events Confirmed Related (Cascading Failure): Simultaneous CPU and Memory exhaustion "
+            "directly starves application worker threads of CPU cycles and memory pages. "
+            "This creates an execution bottleneck that directly causes the observed spike in Response Time, "
+            "proving all anomalies stem from a single cascading failure rather than isolated events."
+        )
+    if {"cpu_usage", "memory_usage", "load_1m"}.issubset(metrics):
+        return (
+            "Events Confirmed Related (Resource Exhaustion Cascade): High CPU consumption paired with memory pressure "
+            "causes scheduler queue backlog, directly driving elevated System Load. All observed metrics are tightly "
+            "coupled manifestations of a single system-wide saturation incident."
+        )
+    if {"cpu_usage", "load_1m"}.issubset(metrics):
+        return (
+            "Events Confirmed Related: System Load is a direct mathematical consequence of runnable processes queued for "
+            "the saturated CPU cores. These are not separate alerts, but the same CPU constraint viewed from resource "
+            "and scheduler perspectives."
+        )
+    if len(metrics) > 1:
+        return (
+            f"Events Correlated: {len(metrics)} subsystems ({', '.join(sorted(metrics))}) exhibited concurrent abnormal "
+            "readings within the same correlation window. Unified into a single incident to prevent alert fatigue."
+        )
+    return "Single isolated metric anomaly."
 
 
 def _generate_rule_based_cause(state: IncidentAnalysisState) -> str:
@@ -107,3 +143,4 @@ def _generate_rule_based_cause(state: IncidentAnalysisState) -> str:
         )
 
     return f"Probable cause: Correlated abnormal readings observed in {', '.join(sorted(metrics))}."
+

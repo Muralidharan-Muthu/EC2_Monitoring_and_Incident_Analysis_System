@@ -196,6 +196,56 @@ export const IncidentDetail: React.FC = () => {
               </div>
             )}
 
+            {/* Event Relationship & Cross-Metric Correlation */}
+            {(incident.event_relationship || analysis?.event_relationship) && (
+              <div
+                className="analysis-block"
+                id="event-relationship"
+                style={{
+                  border: '1px solid rgba(16, 185, 129, 0.35)',
+                  background: 'rgba(16, 185, 129, 0.06)',
+                  borderRadius: '10px',
+                  padding: '16px 20px',
+                  marginBottom: '16px',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px', flexWrap: 'wrap', gap: '8px' }}>
+                  <h3
+                    className="analysis-label"
+                    style={{
+                      color: '#10b981',
+                      margin: 0,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      fontSize: '14px',
+                      fontWeight: 700,
+                    }}
+                  >
+                    <CheckCircle2 size={17} color="#10b981" />
+                    <span>Event Relationship & Correlation</span>
+                  </h3>
+                  <span
+                    style={{
+                      fontSize: '11px',
+                      fontWeight: 700,
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.05em',
+                      background: 'rgba(16, 185, 129, 0.18)',
+                      color: '#10b981',
+                      padding: '3px 10px',
+                      borderRadius: '12px',
+                    }}
+                  >
+                    Events Confirmed Related (Unified Incident)
+                  </span>
+                </div>
+                <p className="analysis-text" style={{ fontSize: '14px', lineHeight: '1.6', margin: 0, color: 'var(--color-text-primary)' }}>
+                  {incident.event_relationship || analysis?.event_relationship}
+                </p>
+              </div>
+            )}
+
             {/* Probable Cause */}
             {incident.probable_cause && (
               <div className="analysis-block" id="probable-cause">

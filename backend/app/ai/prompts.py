@@ -12,25 +12,29 @@ from typing import Any
 
 SYSTEM_PROMPT = """You are an expert AWS EC2 infrastructure reliability engineer 
 analyzing a system incident. Your role is to review validated, rule-detected 
-metric anomalies and provide reasoned, evidence-based incident analysis.
+metric anomalies across time and determine whether these events are related. 
+Provide a unified, meaningful incident analysis instead of treating them as separate isolated alerts.
 
 IMPORTANT RULES:
-1. Base your analysis ONLY on the evidence provided. Do not speculate beyond the data.
-2. Never present probable causes as guaranteed facts — use language like 
+1. Explicitly evaluate whether the multiple anomalies (e.g., CPU, Memory, Disk, System Load, Response Time) 
+   and temporal observations are related to each other or independent. Explain the causal mechanism.
+2. Base your analysis ONLY on the evidence provided. Do not speculate beyond the data.
+3. Never present probable causes as guaranteed facts — use language like 
    "probable cause", "likely contributing factor", "evidence suggests".
-3. Return ONLY valid JSON matching the exact schema specified. No markdown, no extra text.
-4. Confidence should reflect how much evidence supports your conclusions (0.0 to 1.0).
-5. Be specific and actionable in recommended_actions.
+4. Return ONLY valid JSON matching the exact schema specified. No markdown, no extra text.
+5. Confidence should reflect how much evidence supports your conclusions (0.0 to 1.0).
+6. Be specific and actionable in recommended_actions.
 """
 
 ANALYSIS_SCHEMA = """{
   "severity": "WARNING or CRITICAL",
   "affected_metrics": ["list of metric names like CPU, Memory, Disk, System Load, Response Time"],
+  "event_relationship": "Explicit assessment stating whether and how these multiple metric anomalies across time are related (e.g. cross-metric cascading failure: CPU and memory exhaustion directly causing system load escalation and request latency degradation, confirming these are part of ONE single unified incident rather than isolated alerts)",
   "probable_cause": "Evidence-based probable cause description using appropriate hedging language",
   "evidence": ["List of specific observed evidence items"],
   "recommended_actions": ["List of specific, actionable remediation steps"],
   "confidence": 0.85,
-  "reasoning_summary": "Brief narrative explaining how the evidence leads to the probable cause"
+  "reasoning_summary": "Brief narrative explaining how the evidence leads to the probable cause and event relationship"
 }"""
 
 
@@ -79,9 +83,12 @@ def build_analysis_prompt(
         mem = _fmt_float(m.get("memory_usage"))
         disk = _fmt_float(m.get("disk_usage"))
         load = _fmt_float(m.get("load_1m"), prec=2)
+        rt = m.get("response_time_ms")
+        rt_str = f" RT={_fmt_float(rt)}ms" if rt is not None else ""
         metric_lines.append(
-            f"  {m.get('timestamp', '?')}: CPU={cpu}% MEM={mem}% DISK={disk}% LOAD={load}"
+            f"  {m.get('timestamp', '?')}: CPU={cpu}% MEM={mem}% DISK={disk}% LOAD={load}{rt_str}"
         )
+
 
     # Format processes
     proc_lines = []

@@ -26,6 +26,7 @@ export interface IncidentAnalysis {
   model_name: string | null;
   confidence: number | null;
   generated_at: string | null;
+  event_relationship?: string | null;
 }
 
 export interface Incident {
@@ -48,6 +49,7 @@ export interface Incident {
   llm_confidence: number | null;
   llm_analyzed: boolean;
   observation_count: number;
+  event_relationship?: string | null;
   anomalies: AnomalySummary[];
   analysis: IncidentAnalysis | null;
 }

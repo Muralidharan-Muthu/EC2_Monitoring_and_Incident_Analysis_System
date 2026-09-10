@@ -104,6 +104,12 @@ def generate_rule_based_cause(
             f"is experiencing heavy multi-tenant or multi-service workload exhaustion.{proc_detail}"
         )
 
+    if "cpu_usage" in metrics and "memory_usage" in metrics and "response_time_ms" in metrics:
+        return (
+            "Probable cause: Concurrent CPU and memory saturation leading to thread starvation and severe "
+            f"application response time degradation.{proc_detail}"
+        )
+
     if "cpu_usage" in metrics and "memory_usage" in metrics and "load_1m" in metrics:
         return (
             "Probable cause: Simultaneous CPU, memory, and system load pressure indicates "
@@ -136,6 +142,42 @@ def generate_rule_based_cause(
 
     affected = ", ".join(sorted(metrics))
     return f"Probable cause: Anomalous behavior observed in {affected}. Review system activity."
+
+
+def analyze_event_relationship(
+    anomalies: List[Anomaly], processes: Optional[List[Dict[str, Any]]] = None
+) -> str:
+    """
+    Deterministic evaluation of whether concurrent or progressive anomalies are causally related.
+    Explains the cross-metric mechanism and why they are treated as a single unified incident.
+    """
+    metrics = {a.metric_name for a in anomalies}
+
+    if {"cpu_usage", "memory_usage", "response_time_ms"}.issubset(metrics):
+        return (
+            "Events Confirmed Related (Causal Cascade): CPU saturation and memory pressure severely restrict "
+            "worker execution throughput. The application server cannot process inbound traffic in a timely manner, "
+            "directly triggering the observed spike in Response Time due to request queuing. These events are tightly "
+            "coupled manifestations of a single resource exhaustion event, not separate alerts."
+        )
+    if {"cpu_usage", "memory_usage", "load_1m"}.issubset(metrics):
+        return (
+            "Events Confirmed Related (Multi-Resource Saturation): High CPU demand and memory pressure "
+            "concur to cause scheduling backlog and context-switching overhead, directly driving elevated System Load. "
+            "Correlated into a single incident to prevent alert storming."
+        )
+    if {"cpu_usage", "load_1m"}.issubset(metrics):
+        return (
+            "Events Confirmed Related: System Load directly reflects processes queued for saturated CPU cores. "
+            "These are mathematically linked views of the same compute constraint."
+        )
+    if len(metrics) >= 3:
+        return (
+            f"Events Confirmed Related: Multiple interdependent subsystems ({', '.join(sorted(metrics))}) breached "
+            "thresholds concurrently on the same host, indicating systemic host exhaustion."
+        )
+    return "Event correlation confirms concurrent abnormal readings within the active correlation window."
+
 
 
 def generate_rule_based_recommendation(anomalies: List[Anomaly]) -> str:

@@ -43,8 +43,9 @@ class IncidentAnalysisState(TypedDict, total=False):
     assessed_severity: str
     deterministic_findings: List[str]
 
-    # Step 5: Root Cause
+    # Step 5: Root Cause & Event Relationship
     probable_cause: str
+    event_relationship: Optional[str]
 
     # Step 6: Recommendations
     recommended_actions: List[str]

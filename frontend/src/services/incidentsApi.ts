@@ -31,6 +31,17 @@ export const incidentsApi = {
     const response = await apiClient.post<Incident>(`/api/incidents/${incidentId}/analyze`);
     return response.data;
   },
+
+  simulateAssessment: async (hostname?: string): Promise<Incident> => {
+    const params: Record<string, string> = {};
+    if (hostname) params.hostname = hostname;
+    const response = await apiClient.post<Incident>(
+      '/api/incidents/simulate-assessment-scenario',
+      null,
+      { params }
+    );
+    return response.data;
+  },
 };
 
 export const anomaliesApi = {

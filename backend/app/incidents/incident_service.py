@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
 from app.core.logging import get_logger
 from app.incidents.correlation import (
+    analyze_event_relationship,
     build_incident_title,
     compute_correlation_score,
     compute_incident_key,
@@ -24,7 +25,7 @@ from app.incidents.correlation import (
 from app.incidents.lifecycle import check_for_auto_resolution, update_incident_activity
 from app.incidents.severity import determine_severity
 from app.models.anomaly import Anomaly
-from app.models.incident import Incident, IncidentAnomaly
+from app.models.incident import Incident, IncidentAnomaly, IncidentAnalysis
 
 logger = get_logger(__name__)
 
@@ -66,6 +67,7 @@ async def correlate_and_persist_incident(
     cause = generate_rule_based_cause(anomalies, processes)
     recs = generate_rule_based_recommendation(anomalies)
     summary = generate_rule_based_summary(anomalies, batch_severity, hostname)
+    event_rel = analyze_event_relationship(anomalies, processes)
 
     # 3. Look for existing open incident with matching key or host
     stmt = (
@@ -84,7 +86,10 @@ async def correlate_and_persist_incident(
     if not existing_incident:
         stmt_host = (
             select(Incident)
-            .where(Incident.status.in_(["OPEN", "INVESTIGATING"]))
+            .where(
+                Incident.status.in_(["OPEN", "INVESTIGATING"]),
+                Incident.hostname == hostname,
+            )
             .order_by(Incident.started_at.desc())
             .limit(1)
         )
@@ -111,16 +116,52 @@ async def correlate_and_persist_incident(
         existing_incident.recommended_action = recs
         existing_incident.summary = summary
 
-        # Link new anomalies
+        # Merge affected metrics
+        existing_metrics = set(existing_incident.affected_metrics or [])
+        existing_metrics.update(affected_metrics)
+        existing_incident.affected_metrics = sorted(list(existing_metrics))
+
+        # Link new anomalies without duplicates
+        stmt_linked = select(IncidentAnomaly.anomaly_id).where(IncidentAnomaly.incident_id == existing_incident.id)
+        linked_res = await db.execute(stmt_linked)
+        linked_ids = set(linked_res.scalars().all())
+
         for a in anomalies:
-            link = IncidentAnomaly(incident_id=existing_incident.id, anomaly_id=a.id)
-            db.add(link)
+            if a.id not in linked_ids:
+                link = IncidentAnomaly(incident_id=existing_incident.id, anomaly_id=a.id)
+                db.add(link)
+                linked_ids.add(a.id)
+
+        # Update or create IncidentAnalysis
+        stmt_an = select(IncidentAnalysis).where(IncidentAnalysis.incident_id == existing_incident.id)
+        res_an = await db.execute(stmt_an)
+        existing_analysis = res_an.scalar_one_or_none()
+        if existing_analysis:
+            if existing_analysis.analysis_source == "rule_based":
+                existing_analysis.affected_metrics = existing_incident.affected_metrics
+                existing_analysis.probable_causes = [cause]
+                existing_analysis.recommended_actions = [recs]
+                existing_analysis.reasoning_summary = f"{summary}\n\nEvent Correlation: {event_rel}"
+                existing_analysis.raw_llm_response = {"event_relationship": event_rel}
+        else:
+            initial_analysis = IncidentAnalysis(
+                incident_id=existing_incident.id,
+                affected_metrics=existing_incident.affected_metrics,
+                probable_causes=[cause],
+                evidence=[],
+                recommended_actions=[recs],
+                reasoning_summary=f"{summary}\n\nEvent Correlation: {event_rel}",
+                analysis_source="rule_based",
+                confidence=0.85,
+                raw_llm_response={"event_relationship": event_rel},
+            )
+            db.add(initial_analysis)
 
         await db.flush()
         logger.info(
             "incident_updated",
             incident_id=str(existing_incident.id),
-            key=incident_key,
+            key=existing_incident.incident_key,
             severity=existing_incident.severity,
         )
         return existing_incident
@@ -132,7 +173,9 @@ async def correlate_and_persist_incident(
         title=title,
         status="OPEN",
         severity=batch_severity,
+        hostname=hostname,
         correlation_score=batch_score,
+        affected_metrics=affected_metrics,
         started_at=timestamp,
         last_seen_at=timestamp,
         probable_cause=cause,
@@ -148,6 +191,20 @@ async def correlate_and_persist_incident(
     for a in anomalies:
         link = IncidentAnomaly(incident_id=new_incident.id, anomaly_id=a.id)
         db.add(link)
+
+    # Create initial IncidentAnalysis
+    initial_analysis = IncidentAnalysis(
+        incident_id=new_incident.id,
+        affected_metrics=affected_metrics,
+        probable_causes=[cause],
+        evidence=[],
+        recommended_actions=[recs],
+        reasoning_summary=f"{summary}\n\nEvent Correlation: {event_rel}",
+        analysis_source="rule_based",
+        confidence=0.85,
+        raw_llm_response={"event_relationship": event_rel},
+    )
+    db.add(initial_analysis)
 
     await db.flush()
     logger.info(

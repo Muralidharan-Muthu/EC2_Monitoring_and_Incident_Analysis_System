@@ -149,3 +149,12 @@ async def test_assessment_scenario_correlation_and_deduplication():
     assert len(analysis_state["recommended_actions"]) >= 2
     assert analysis_state["confidence"] >= 0.70
     assert analysis_state["validation_passed"] is True
+
+    # Validate Event Relationship analysis (Causal link between resource exhaustion and response time degradation)
+    assert analysis_state.get("event_relationship") is not None
+    assert "related" in analysis_state["event_relationship"].lower()
+
+    from app.incidents.correlation import analyze_event_relationship
+    rel = analyze_event_relationship(anomaly_models_10_05)
+    assert "related" in rel.lower()
+    assert "response time" in rel.lower()

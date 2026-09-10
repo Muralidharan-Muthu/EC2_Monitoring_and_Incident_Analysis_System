@@ -23,6 +23,7 @@ class IncidentAnalysisSchema(BaseModel):
     model_name: Optional[str] = None
     confidence: Optional[float] = None
     generated_at: Optional[datetime] = None
+    event_relationship: Optional[str] = None
 
     model_config = {"from_attributes": True}
 
@@ -63,6 +64,7 @@ class IncidentResponse(BaseModel):
     llm_confidence: Optional[float]
     llm_analyzed: bool
     observation_count: int
+    event_relationship: Optional[str] = None
 
     # Embedded related data (populated on detail endpoint)
     anomalies: list[AnomalySummary] = Field(default_factory=list)
