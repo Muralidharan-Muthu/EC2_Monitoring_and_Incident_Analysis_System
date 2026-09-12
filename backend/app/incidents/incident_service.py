@@ -18,6 +18,7 @@ from app.incidents.correlation import (
     build_incident_title,
     compute_correlation_score,
     compute_incident_key,
+    generate_rule_based_actions,
     generate_rule_based_cause,
     generate_rule_based_recommendation,
     generate_rule_based_summary,
@@ -65,6 +66,7 @@ async def correlate_and_persist_incident(
     batch_score = compute_correlation_score(anomalies)
     title = build_incident_title(affected_metrics, batch_severity)
     cause = generate_rule_based_cause(anomalies, processes)
+    rec_actions = generate_rule_based_actions(anomalies)
     recs = generate_rule_based_recommendation(anomalies)
     summary = generate_rule_based_summary(anomalies, batch_severity, hostname)
     event_rel = analyze_event_relationship(anomalies, processes)
@@ -140,7 +142,7 @@ async def correlate_and_persist_incident(
             if existing_analysis.analysis_source == "rule_based":
                 existing_analysis.affected_metrics = existing_incident.affected_metrics
                 existing_analysis.probable_causes = [cause]
-                existing_analysis.recommended_actions = [recs]
+                existing_analysis.recommended_actions = rec_actions
                 existing_analysis.reasoning_summary = f"{summary}\n\nEvent Correlation: {event_rel}"
                 existing_analysis.raw_llm_response = {"event_relationship": event_rel}
         else:
@@ -149,7 +151,7 @@ async def correlate_and_persist_incident(
                 affected_metrics=existing_incident.affected_metrics,
                 probable_causes=[cause],
                 evidence=[],
-                recommended_actions=[recs],
+                recommended_actions=rec_actions,
                 reasoning_summary=f"{summary}\n\nEvent Correlation: {event_rel}",
                 analysis_source="rule_based",
                 confidence=0.85,
@@ -198,7 +200,7 @@ async def correlate_and_persist_incident(
         affected_metrics=affected_metrics,
         probable_causes=[cause],
         evidence=[],
-        recommended_actions=[recs],
+        recommended_actions=rec_actions,
         reasoning_summary=f"{summary}\n\nEvent Correlation: {event_rel}",
         analysis_source="rule_based",
         confidence=0.85,

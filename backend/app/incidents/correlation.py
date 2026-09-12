@@ -180,23 +180,31 @@ def analyze_event_relationship(
 
 
 
-def generate_rule_based_recommendation(anomalies: List[Anomaly]) -> str:
-    """Deterministic actionable recommendations."""
+def generate_rule_based_actions(anomalies: List[Anomaly]) -> List[str]:
+    """Deterministic list of 2-3 distinct actionable recommendations."""
     metrics = {a.metric_name for a in anomalies}
     actions: List[str] = []
 
     if "cpu_usage" in metrics or "load_1m" in metrics:
-        actions.append("Inspect top CPU-consuming processes using `ps -eo pid,comm,%cpu --sort=-%cpu | head -n 10`")
+        actions.append("Terminate runaway high-compute processes: `sudo pkill -9 stress-ng`")
     if "memory_usage" in metrics:
-        actions.append("Review per-process memory consumption and system cache using `free -m` and `ps -eo pid,comm,%mem --sort=-%mem | head -n 10`")
+        actions.append("Review per-process memory consumption and reclaim buffers: `free -m`")
     if "disk_usage" in metrics:
-        actions.append("Inspect large files and directory usage with `df -h` and `du -sh /var/log/*`")
+        actions.append("Clean temporary stress storage artifacts: `rm -f /var/tmp/disk_stress.img /tmp/disk_stress.img; sync`")
     if "response_time_ms" in metrics:
-        actions.append("Check web application connection pools, worker thread counts, and upstream service latency")
+        actions.append("Inspect web application connection backlog and open ports: `ss -tulpn`")
 
-    actions.append("Examine system journal for kernel warnings via `journalctl -p warning..err -n 50 --no-pager`")
-    actions.append("Evaluate EC2 instance sizing and consider upgrading compute/memory specs if workload is legitimate")
+    if len(actions) < 2:
+        actions.append("Audit top CPU and memory consumers: `ps -eo pid,comm,%cpu,%mem --sort=-%cpu | head -n 6`")
+    if len(actions) < 3:
+        actions.append("Examine system journal for kernel warnings: `journalctl -p warning..err -n 50 --no-pager`")
 
+    return actions[:3]
+
+
+def generate_rule_based_recommendation(anomalies: List[Anomaly]) -> str:
+    """Deterministic actionable recommendations string."""
+    actions = generate_rule_based_actions(anomalies)
     return " ".join(f"({i+1}) {act}." for i, act in enumerate(actions))
 
 

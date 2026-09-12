@@ -49,6 +49,24 @@ export const incidentsApi = {
     });
     return response.data;
   },
+
+  remediate: async (
+    incidentId: string,
+    command: string
+  ): Promise<{
+    success: boolean;
+    incident_id: string;
+    command: string;
+    stdout: string;
+    stderr: string;
+    exit_code: number;
+    duration_ms: number;
+    error?: string | null;
+    message: string;
+  }> => {
+    const response = await apiClient.post(`/api/incidents/${incidentId}/remediate`, { command });
+    return response.data;
+  },
 };
 
 export const anomaliesApi = {

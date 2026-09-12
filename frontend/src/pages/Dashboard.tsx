@@ -54,13 +54,13 @@ export const Dashboard: React.FC = () => {
   const [discoveredInstances, setDiscoveredInstances] = useState<EC2Instance[]>([]);
   const [autoConnecting, setAutoConnecting] = useState(false);
 
-  // Auto-refresh every 20 seconds
+  // Auto-refresh every 10 seconds
   useEffect(() => {
     const timer = setInterval(() => {
       refreshSummary();
       refreshTimeseries();
       refreshIncidents();
-    }, 20000);
+    }, 10000);
     return () => clearInterval(timer);
   }, [refreshSummary, refreshTimeseries, refreshIncidents]);
 
@@ -526,15 +526,6 @@ export const Dashboard: React.FC = () => {
               unit=""
               precision={2}
               description="CPU run queue average"
-            />
-            <MetricCard
-              label="Response Time"
-              value={summary?.latest_response_time_ms}
-              unit="ms"
-              precision={0}
-              warningThreshold={1000}
-              criticalThreshold={2000}
-              description="Application HTTP latency"
             />
           </div>
         )}

@@ -1,189 +1,256 @@
 """
 Script to generate docs/architecture.png.
-Renders a crisp, modern, professional system architecture diagram.
+Renders a flow-based architecture diagram with small, distinct blocks from START to END.
 """
 
 from PIL import Image, ImageDraw, ImageFont
 from pathlib import Path
 
 
-def create_architecture_diagram():
-    width = 1600
-    height = 1000
-    bg_color = (15, 23, 42)  # Dark slate navy
+def create_flow_architecture_diagram():
+    width = 1560
+    height = 760
+    bg_color = (13, 17, 23)  # Modern dark slate
     img = Image.new("RGB", (width, height), bg_color)
     draw = ImageDraw.Draw(img)
 
-    # Palette
-    card_bg = (30, 41, 59)
-    card_border = (51, 65, 85)
-    accent_blue = (59, 130, 246)
-    accent_cyan = (6, 182, 212)
-    accent_purple = (168, 85, 247)
-    accent_green = (16, 185, 129)
-    accent_amber = (245, 158, 11)
-    text_white = (248, 250, 252)
-    text_muted = (148, 163, 184)
+    # Color Palette
+    border_subtle = (48, 54, 61)
+    border_active = (75, 85, 99)
+    card_bg = (22, 27, 34)
+    item_bg = (28, 33, 40)
+    
+    c_green = (34, 197, 94)    # Start / Healthy
+    c_blue = (56, 189, 248)    # Ingestion
+    c_amber = (245, 158, 11)   # Anomaly Detection
+    c_purple = (168, 85, 247)  # Correlation
+    c_rose = (244, 63, 94)     # AI Diagnosis
+    c_cyan = (6, 182, 212)     # Database
+    c_emerald = (16, 185, 129) # End / UI
+    
+    text_primary = (240, 246, 252)
+    text_secondary = (148, 163, 184)
+    text_muted = (100, 116, 139)
 
     # Fonts
     try:
-        title_font = ImageFont.truetype("arial.ttf", 28)
-        subtitle_font = ImageFont.truetype("arial.ttf", 16)
-        heading_font = ImageFont.truetype("arial.ttf", 18)
-        body_font = ImageFont.truetype("arial.ttf", 14)
-        mono_font = ImageFont.truetype("consolas.ttf", 13)
+        title_font = ImageFont.truetype("arial.ttf", 24)
+        subtitle_font = ImageFont.truetype("arial.ttf", 14)
+        tag_font = ImageFont.truetype("arial.ttf", 11)
+        card_title_font = ImageFont.truetype("arial.ttf", 16)
+        item_font = ImageFont.truetype("arial.ttf", 13)
+        desc_font = ImageFont.truetype("arial.ttf", 11)
+        arrow_font = ImageFont.truetype("arial.ttf", 11)
     except:
         title_font = ImageFont.load_default()
         subtitle_font = title_font
-        heading_font = title_font
-        body_font = title_font
-        mono_font = title_font
+        tag_font = title_font
+        card_title_font = title_font
+        item_font = title_font
+        desc_font = title_font
+        arrow_font = title_font
 
-    # Title header
-    draw.text((60, 40), "EC2 Monitoring & Incident Analysis System", fill=text_white, font=title_font)
+    # --- Header ---
+    draw.text((60, 32), "EC2 Monitoring & Incident Analysis System", fill=text_primary, font=title_font)
     draw.text(
-        (60, 75),
-        "Agentless SSH Remote Monitoring | Deterministic Correlation | 8-Node LangGraph + Groq LLM | Supabase PostgreSQL",
-        fill=accent_cyan,
+        (60, 64),
+        "End-to-End Application Flow Architecture  •  From Remote EC2 Telemetry to AI Root-Cause Remediation",
+        fill=text_secondary,
         font=subtitle_font,
     )
+    draw.line([(60, 96), (1500, 96)], fill=border_subtle, width=1)
 
-    # Helper: rounded box
-    def draw_card(x, y, w, h, title, subtitle="", border_color=card_border, bg=card_bg):
-        draw.rounded_rectangle([x, y, x + w, y + h], radius=8, fill=bg, outline=border_color, width=2)
-        draw.text((x + 16, y + 14), title, fill=text_white, font=heading_font)
-        if subtitle:
-            draw.text((x + 16, y + 36), subtitle, fill=text_muted, font=body_font)
+    # Helper: Draw Small Compact Flow Block
+    def draw_block(x, y, w, h, step_tag, title, accent_color, bullets, is_terminal=None):
+        # Outer Card
+        outline_col = accent_color if is_terminal else border_subtle
+        draw.rounded_rectangle([x, y, x + w, y + h], radius=8, fill=card_bg, outline=outline_col, width=2 if is_terminal else 1)
+        
+        # Header banner
+        draw.rounded_rectangle([x, y, x + w, y + 42], radius=8, fill=(28, 33, 40))
+        draw.rectangle([x, y + 26, x + w, y + 42], fill=(28, 33, 40))
+        draw.line([(x, y + 42), (x + w, y + 42)], fill=border_subtle, width=1)
+        
+        # Accent indicator
+        draw.line([(x + 8, y + 2), (x + w - 8, y + 2)], fill=accent_color, width=3)
+        
+        # Tag badge
+        draw.text((x + 12, y + 8), step_tag.upper(), fill=accent_color, font=tag_font)
+        # Title
+        draw.text((x + 12, y + 22), title, fill=text_primary, font=card_title_font)
 
-    # Helper: Arrow
-    def draw_arrow(x1, y1, x2, y2, color=accent_blue, text=""):
-        draw.line([x1, y1, x2, y2], fill=color, width=2)
-        # Arrowhead
-        if y2 > y1:  # Down
-            draw.polygon([(x2, y2), (x2 - 5, y2 - 8), (x2 + 5, y2 - 8)], fill=color)
-        elif x2 > x1:  # Right
-            draw.polygon([(x2, y2), (x2 - 8, y2 - 5), (x2 - 8, y2 + 5)], fill=color)
-        elif x1 > x2:  # Left
-            draw.polygon([(x2, y2), (x2 + 8, y2 - 5), (x2 + 8, y2 + 5)], fill=color)
+        # Bullets
+        cur_y = y + 54
+        for b in bullets:
+            # Bullet dot
+            draw.ellipse([x + 14, cur_y + 4, x + 18, cur_y + 8], fill=accent_color)
+            draw.text((x + 24, cur_y), b["text"], fill=text_primary, font=item_font)
+            if "sub" in b:
+                draw.text((x + 24, cur_y + 16), b["sub"], fill=text_muted, font=desc_font)
+                cur_y += 34
+            else:
+                cur_y += 24
 
-        if text:
-            mid_x = (x1 + x2) // 2 + 8
-            mid_y = (y1 + y2) // 2 - 8
-            draw.text((mid_x, mid_y), text, fill=color, font=mono_font)
+    # Helper: Draw Right Arrow
+    def draw_right_arrow(x1, x2, y, label=""):
+        mid_x = (x1 + x2) // 2
+        draw.line([(x1, y), (x2, y)], fill=text_muted, width=2)
+        draw.polygon([(x2, y), (x2 - 8, y - 5), (x2 - 8, y + 5)], fill=text_secondary)
+        if label:
+            draw.text((mid_x - 30, y - 18), label, fill=text_secondary, font=arrow_font)
 
-    # Column 1: Front-to-Back flow
-    # 1. React Frontend
-    draw_card(60, 130, 360, 120, "1. React Frontend (Vite + TS)", "Port 5173 · Status & Telemetry UI", accent_cyan)
-    draw.text((76, 185), "• Real-time Dashboard (10s auto-refresh)", fill=text_muted, font=body_font)
-    draw.text((76, 205), "• Strict Null Handling (formatMetric -> '-')", fill=text_muted, font=body_font)
-    draw.text((76, 225), "• Time-Series Recharts (connectNulls=false)", fill=text_muted, font=body_font)
+    # Helper: Draw Left Arrow
+    def draw_left_arrow(x1, x2, y, label=""):
+        mid_x = (x1 + x2) // 2
+        draw.line([(x1, y), (x2, y)], fill=text_muted, width=2)
+        draw.polygon([(x2, y), (x2 + 8, y - 5), (x2 + 8, y + 5)], fill=text_secondary)
+        if label:
+            draw.text((mid_x - 35, y - 18), label, fill=text_secondary, font=arrow_font)
 
-    draw_arrow(240, 250, 240, 290, accent_cyan, "HTTP / REST")
+    # Helper: Draw Down Arrow
+    def draw_down_arrow(x, y1, y2, label=""):
+        mid_y = (y1 + y2) // 2
+        draw.line([(x, y1), (x, y2)], fill=text_muted, width=2)
+        draw.polygon([(x, y2), (x - 5, y2 - 8), (x + 5, y2 - 8)], fill=text_secondary)
+        if label:
+            draw.text((x + 12, mid_y - 8), label, fill=c_purple, font=arrow_font)
 
-    # 2. FastAPI Backend
-    draw_card(60, 290, 360, 130, "2. FastAPI Backend", "Port 8000 · Python 3.11 + Pydantic", accent_blue)
-    draw.text((76, 345), "• Agentless Monitoring Lifecycle Worker", fill=text_muted, font=body_font)
-    draw.text((76, 365), "• AsyncSSH Client (Private Key Auth)", fill=text_muted, font=body_font)
-    draw.text((76, 385), "• Safe Command Execution & Allowlist", fill=text_muted, font=body_font)
+    # ==================== ROW 1 (Left to Right: Steps 1 -> 4) ====================
+    r1_y = 120
+    b_w = 280
+    b_h = 240
+    gap = 80
 
-    draw_arrow(240, 420, 240, 460, accent_blue, "SSH (:22)")
+    # Block 1: Start / Target EC2
+    x1 = 60
+    draw_block(
+        x1, r1_y, b_w, b_h,
+        step_tag="START • INFRASTRUCTURE",
+        title="1. AWS EC2 Target Host",
+        accent_color=c_green,
+        bullets=[
+            {"text": "Ubuntu 24.04 LTS (AWS EC2)", "sub": "Target monitored cloud host"},
+            {"text": "Native Linux Tools", "sub": "mpstat, free, df, /proc, ps"},
+            {"text": "Zero-Agent Overhead", "sub": "No background daemons installed"},
+        ],
+        is_terminal="start",
+    )
 
-    # 3. AWS EC2 Remote Linux Host
-    draw_card(60, 460, 360, 230, "3. AWS EC2 Ubuntu Instance", "Remote Linux Host (No Agent Installed)", accent_amber)
-    cmds = [
-        "CPU: mpstat 1 1, nproc, /proc/stat",
-        "Memory: free -m (total, used, avail)",
-        "Disk: df -P / (POSIX KB -> GB)",
-        "Load: cat /proc/loadavg (1m, 5m, 15m)",
-        "Processes: ps -eo pid,comm,%cpu,%mem",
-        "Network: cat /proc/net/dev (rx, tx)",
-        "Logs: journalctl -p warning..err -n 20",
-        "System: hostname, uname -r, os-release",
-    ]
-    for i, c in enumerate(cmds):
-        draw.text((76, 515 + i * 20), f"• {c}", fill=text_muted, font=mono_font)
+    # Arrow 1 -> 2
+    draw_right_arrow(x1 + b_w, x1 + b_w + gap, r1_y + 110, "SSH :22")
 
-    # Arrow from EC2 back to Backend / Ingestion
-    draw_arrow(420, 560, 470, 560, accent_amber, "")
-    draw.line([470, 560, 470, 350], fill=accent_amber, width=2)
-    draw_arrow(470, 350, 520, 350, accent_amber, "Command Output")
+    # Block 2: Ingestion
+    x2 = x1 + b_w + gap
+    draw_block(
+        x2, r1_y, b_w, b_h,
+        step_tag="STEP 2 • INGESTION",
+        title="2. SSH Ingestion Engine",
+        accent_color=c_blue,
+        bullets=[
+            {"text": "AsyncSSH Session Reuse", "sub": "Low latency ~1.2s connection"},
+            {"text": "Resilient Polling (~15s)", "sub": "Independent subtask collectors"},
+            {"text": "Strict Null Safety", "sub": "Never masks failures as fake 0%"},
+        ],
+    )
 
-    # Column 2: Data Pipeline & Processing
-    # 4. Metric Normalizer & Null Safety
-    draw_card(520, 130, 440, 110, "4. Metric Normalization", "Strict Null Preservation (No Fake 0s)", accent_blue)
-    draw.text((536, 185), "• Distinguishes true 0.0 from uncollected (null)", fill=text_muted, font=body_font)
-    draw.text((536, 205), "• Data Quality: COMPLETE | PARTIAL | FAILED", fill=text_muted, font=body_font)
+    # Arrow 2 -> 3
+    draw_right_arrow(x2 + b_w, x2 + b_w + gap, r1_y + 110, "Telemetry")
 
-    draw_arrow(740, 240, 740, 270, accent_blue, "")
+    # Block 3: Anomaly Detection
+    x3 = x2 + b_w + gap
+    draw_block(
+        x3, r1_y, b_w, b_h,
+        step_tag="STEP 3 • DETECTION",
+        title="3. Anomaly Detector",
+        accent_color=c_amber,
+        bullets=[
+            {"text": "Multi-Tier Thresholds", "sub": "CPU/RAM >90%, Disk >85%"},
+            {"text": "Persistence Filter (N=3)", "sub": "Eliminates transient spikes"},
+            {"text": "Process Snapshotting", "sub": "Captures top CPU/RAM processes"},
+        ],
+    )
 
-    # 5. Anomaly Detection & Persistence
-    draw_card(520, 270, 440, 120, "5. Deterministic Anomaly Engine", "Configurable Warning & Critical Rules", accent_amber)
-    draw.text((536, 325), "• CPU (70/90%), Memory (75/90%), Disk (80/90%)", fill=text_muted, font=body_font)
-    draw.text((536, 345), "• System Load relative to core count (1x / 2x cores)", fill=text_muted, font=body_font)
-    draw.text((536, 365), "• Persistence Filter (N=3 consecutive samples)", fill=text_muted, font=body_font)
+    # Arrow 3 -> 4
+    draw_right_arrow(x3 + b_w, x3 + b_w + gap, r1_y + 110, "Anomalies")
 
-    draw_arrow(740, 390, 740, 420, accent_amber, "")
+    # Block 4: Incident Correlation
+    x4 = x3 + b_w + gap
+    draw_block(
+        x4, r1_y, b_w, b_h,
+        step_tag="STEP 4 • CORRELATION",
+        title="4. Correlation Engine",
+        accent_color=c_purple,
+        bullets=[
+            {"text": "5-Min Sliding Window", "sub": "Groups concurrent subsystem spikes"},
+            {"text": "Deduplication Key", "sub": "SHA256(hostname + family)"},
+            {"text": "Alert Storm Mitigation", "sub": "Single unified incident created"},
+        ],
+    )
 
-    # 6. Correlation Engine
-    draw_card(520, 420, 440, 130, "6. Correlation & Incident Engine", "Multi-Metric Deduplication & Lifecycle", accent_purple)
-    draw.text((536, 475), "• 5-min Temporal Window Correlation", fill=text_muted, font=body_font)
-    draw.text((536, 495), "• Correlates CPU + Mem + Load -> ONE Incident", fill=text_muted, font=body_font)
-    draw.text((536, 515), "• 4-Tier Severity: LOW | MEDIUM | HIGH | CRITICAL", fill=text_muted, font=body_font)
-    draw.text((536, 535), "• Deduplication Key: Prevents duplicate INC-002", fill=text_muted, font=body_font)
+    # ==================== CONNECTOR: Row 1 to Row 2 ====================
+    down_x = x4 + b_w // 2
+    draw_down_arrow(down_x, r1_y + b_h, 440, "Unified Incident")
 
-    # Supabase PostgreSQL Storage
-    draw_card(520, 580, 440, 110, "Database: Supabase PostgreSQL", "Schema: ec2_monitoring_working", accent_green)
-    draw.text((536, 635), "• Nullable MetricSnapshots, ProcessSnapshots", fill=text_muted, font=body_font)
-    draw.text((536, 655), "• Anomalies, Incidents, and IncidentAnalysis", fill=text_muted, font=body_font)
+    # ==================== ROW 2 (Right to Left: Steps 5 -> 7) ====================
+    r2_y = 440
 
-    draw_arrow(740, 550, 740, 580, accent_green, "Persist")
-    draw_arrow(740, 185, 520, 185, accent_blue, "")
+    # Block 5: LangGraph AI (under Block 4)
+    x5 = x4
+    draw_block(
+        x5, r2_y, b_w, b_h,
+        step_tag="STEP 5 • AI DIAGNOSIS",
+        title="5. LangGraph AI Engine",
+        accent_color=c_rose,
+        bullets=[
+            {"text": "8-Node State Machine", "sub": "Evidence -> Severity -> Root Cause"},
+            {"text": "Groq LLM (qwen3.8-27b)", "sub": "Pinpoints culprit (stress-ng-cpu)"},
+            {"text": "Actionable Remediation", "sub": "Generates copyable bash commands"},
+        ],
+    )
 
-    # Column 3: LangGraph 8-Node Workflow & Groq
-    draw_card(1020, 130, 520, 560, "7. 8-Node LangGraph + Groq Workflow", "AI Reasoning with Deterministic Fallback", accent_purple)
+    # Arrow 5 -> 6 (flows leftward)
+    draw_left_arrow(x5, x3 + b_w, r2_y + 110, "Persist & Log")
 
-    nodes = [
-        ("1. Collect Context", "Gathers metrics, anomalies, procs, logs"),
-        ("2. Validate Evidence", "Formulates factual observed evidence points"),
-        ("3. Correlate Events", "Multi-metric saturation & temporal scoring"),
-        ("4. Assess Severity", "4-tier severity: LOW, MEDIUM, HIGH, CRITICAL"),
-        ("5. Determine Cause", "Groq LLM (qwen/qwen3.8-27b) / Rule Fallback"),
-        ("6. Recommend Actions", "Actionable Linux remediation commands"),
-        ("7. Generate Summary", "Executive reasoning & narrative synthesis"),
-        ("8. Validate Output", "Pydantic schema validation & verification"),
-    ]
+    # Block 6: Supabase PostgreSQL (under Block 3)
+    x6 = x3
+    draw_block(
+        x6, r2_y, b_w, b_h,
+        step_tag="STEP 6 • PERSISTENCE",
+        title="6. Supabase PostgreSQL",
+        accent_color=c_cyan,
+        bullets=[
+            {"text": "Time-Series 'metrics'", "sub": "CPU, Memory, Disk, Load queues"},
+            {"text": "Correlated 'incidents'", "sub": "Master incidents & deduplication"},
+            {"text": "'incident_analyses' Table", "sub": "AI diagnosis & remediation JSON"},
+        ],
+    )
 
-    for i, (n_title, n_desc) in enumerate(nodes):
-        ny = 185 + i * 46
-        box_color = accent_purple if i != 4 else accent_amber
-        draw.rounded_rectangle([1040, ny, 1510, ny + 38], radius=6, fill=(45, 55, 72), outline=box_color, width=1)
-        draw.text((1055, ny + 5), n_title, fill=text_white, font=heading_font)
-        draw.text((1055, ny + 22), n_desc, fill=text_muted, font=body_font)
-        if i < 7:
-            draw.line([1275, ny + 38, 1275, ny + 46], fill=accent_purple, width=2)
+    # Arrow 6 -> 7 (flows leftward to Dashboard)
+    draw_left_arrow(x6, x2 + b_w, r2_y + 110, "REST API")
 
-    # Groq Box
-    draw_card(1020, 720, 520, 100, "Groq LLM API", "Model: qwen/qwen3.8-27b (Configurable in .env)", accent_amber)
-    draw.text((1036, 775), "• Strict JSON Object Output | Zero Hallucination Prompt", fill=text_muted, font=body_font)
-    draw.text((1036, 795), "• Automatic Fallback to Rule Engine on Quota / Network Error", fill=text_muted, font=body_font)
+    # Block 7: React Dashboard (spans width of Block 1 + Block 2)
+    b7_w = b_w * 2 + gap
+    x7 = x1
+    draw_block(
+        x7, r2_y, b7_w, b_h,
+        step_tag="END • OPERATOR DASHBOARD",
+        title="7. React 18 & Vite Web Application",
+        accent_color=c_emerald,
+        bullets=[
+            {"text": "Real-Time Telemetry Gauges & Spline Trend Charts", "sub": "Live CPU, Memory, Disk, and System Load monitored every 10 seconds"},
+            {"text": "Unified Incident Action Center", "sub": "Displays active alerts, severity badges (CRITICAL/HIGH), and culprit process tags"},
+            {"text": "1-Click Copyable Remediation Actions", "sub": "Bash commands generated by LangGraph ready to execute for instant incident resolution"},
+        ],
+        is_terminal="end",
+    )
 
-    draw_arrow(1275, 690, 1275, 720, accent_amber, "Prompt")
-    draw_arrow(1020, 480, 960, 480, accent_purple, "Trigger")
-
-    # Bottom bar: Acceptance criteria
-    draw.rounded_rectangle([60, 840, 1540, 960], radius=8, fill=(24, 32, 47), outline=(51, 65, 85), width=1)
-    draw.text((80, 855), "CORE PRODUCTION GUARANTEES & SPECIFICATION COMPLIANCE", fill=accent_cyan, font=heading_font)
-    draw.text((80, 885), "[✓] AGENTLESS SSH: Backend connects via AsyncSSH using server-side private key (no agent on EC2).", fill=text_white, font=body_font)
-    draw.text((80, 905), "[✓] ZERO FAKE VALUES: Missing or failed metrics remain null (UI renders '-'). Never displays fake 0.0.", fill=text_white, font=body_font)
-    draw.text((80, 925), "[✓] CORRELATED INCIDENTS: Multiple concurrent anomalies form ONE incident. Deduplicated by family key.", fill=text_white, font=body_font)
-    draw.text((80, 945), "[✓] RESILIENT AI: 8-node LangGraph runs Groq with 100% deterministic rule fallback if LLM is offline.", fill=text_white, font=body_font)
-
-    # Save
-    out_path = Path(__file__).resolve().parent.parent / "docs" / "architecture.png"
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    img.save(str(out_path), "PNG")
-    print(f"Saved architecture diagram to: {out_path}")
+    # Save to docs/architecture.png
+    out_dir = Path(__file__).resolve().parent.parent / "docs"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / "architecture.png"
+    img.save(out_path, format="PNG", optimize=True)
+    print(f"[SUCCESS] Flow-based architecture diagram generated at: {out_path} ({width}x{height})")
 
 
 if __name__ == "__main__":
-    create_architecture_diagram()
+    create_flow_architecture_diagram()

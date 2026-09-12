@@ -11,6 +11,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone, timedelta
 from typing import Optional
+from pydantic import BaseModel
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -574,3 +575,58 @@ async def simulate_assessment_scenario(
 
     updated = await incident_repo.get_by_id(incident.id)
     return _serialize_incident(updated)
+
+
+class RemediateRequest(BaseModel):
+    command: str
+
+
+@router.post(
+    "/incidents/{incident_id}/remediate",
+    summary="Execute remediation command on remote EC2 instance",
+    tags=["Incidents"],
+)
+async def remediate_incident(
+    incident_id: uuid.UUID,
+    payload: RemediateRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Execute an approved operational remediation command (e.g. pkill, cleanup)
+    on the remote AWS EC2 instance over SSH directly from the UI.
+    """
+    from app.ssh.client import get_ssh_client
+
+    incident_repo = IncidentRepository(db)
+    incident = await incident_repo.get_by_id(incident_id)
+    if not incident:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Incident {incident_id} not found",
+        )
+
+    cmd = payload.command.strip()
+    ssh_client = get_ssh_client()
+    result = await ssh_client.execute_remediation(cmd)
+
+    # Immediately trigger a telemetry collection cycle so UI updates
+    try:
+        from app.monitoring.snapshot_service import record_snapshot_cycle
+        await record_snapshot_cycle(db)
+    except Exception as exc:
+        logger.warning("post_remediation_snapshot_warning", error=str(exc))
+
+    return {
+        "success": result.success,
+        "incident_id": str(incident_id),
+        "command": cmd,
+        "stdout": result.stdout,
+        "stderr": result.stderr,
+        "exit_code": result.exit_code,
+        "duration_ms": result.duration_ms,
+        "error": result.error,
+        "message": "Command executed successfully on remote EC2 host."
+        if result.success
+        else f"Execution notice: {result.error or 'Process exited with non-zero status'}",
+    }
+

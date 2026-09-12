@@ -52,28 +52,29 @@ class CollectorService:
                 proc_task = collect_processes(session)
                 resp_task = collect_response_time()
 
-                (
-                    raw_results["cpu"],
-                    raw_results["memory"],
-                    raw_results["disk"],
-                    raw_results["load"],
-                    raw_results["system"],
-                    raw_results["network"],
-                    raw_results["logs"],
-                    raw_results["process"],
-                    raw_results["response_time"],
-                ) = await asyncio.gather(
-                    cpu_task,
-                    mem_task,
-                    disk_task,
-                    load_task,
-                    sys_task,
-                    net_task,
-                    logs_task,
-                    proc_task,
-                    resp_task,
-                    return_exceptions=False,
+                tasks = [
+                    ("cpu", cpu_task),
+                    ("memory", mem_task),
+                    ("disk", disk_task),
+                    ("load", load_task),
+                    ("system", sys_task),
+                    ("network", net_task),
+                    ("logs", logs_task),
+                    ("process", proc_task),
+                    ("response_time", resp_task),
+                ]
+                gathered = await asyncio.gather(
+                    *[t[1] for t in tasks],
+                    return_exceptions=True,
                 )
+                for (key, _), res in zip(tasks, gathered):
+                    if isinstance(res, Exception):
+                        err_str = f"Collector '{key}' failed: {res}"
+                        logger.warning("collector_subtask_failed", collector=key, error=str(res))
+                        raw_results[key] = {"status": "failed", "error": err_str}
+                        errors.append(err_str)
+                    else:
+                        raw_results[key] = res
 
         except Exception as exc:
             err_msg = f"SSH connection or execution failed: {exc}"

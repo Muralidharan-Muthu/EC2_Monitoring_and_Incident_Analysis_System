@@ -24,6 +24,10 @@ import {
   TrendingUp,
   Server,
   Zap,
+  Terminal,
+  Loader2,
+  X,
+  Play,
 } from 'lucide-react';
 import { useIncidentDetail } from '../hooks/useIncidents';
 import { incidentsApi } from '../services/incidentsApi';
@@ -58,12 +62,140 @@ const METRIC_LABELS: Record<string, string> = {
   response_time_ms: 'Response Time',
 };
 
-const REMEDIATION_COMMANDS: Record<number, string> = {
-  0: 'sudo pkill -9 -f stress-ng',
-  1: 'ps -eo pid,comm,%cpu,%mem --sort=-%cpu | head -n 10',
-  2: 'journalctl -p warning..err -n 50 --no-pager',
-  3: 'free -m && uptime',
-};
+export interface RemediationSolution {
+  stepNum: number;
+  badge: string;
+  badgeColor: string;
+  title: string;
+  description: string;
+  command: string;
+}
+
+function getRemediationSolutions(
+  incident: {
+    affected_metrics?: string[] | null;
+    probable_cause?: string | null;
+    recommended_action?: string | null;
+  },
+  analysis?: {
+    recommended_actions?: string[] | null;
+    evidence?: string[] | null;
+  } | null,
+  culprits: Array<{ name: string; detail: string; stat: string }> = []
+): RemediationSolution[] {
+  const metrics = incident.affected_metrics || [];
+  const causeLower = (incident.probable_cause || '').toLowerCase();
+  const hasCpu = metrics.includes('cpu_usage') || metrics.includes('load_1m') || causeLower.includes('cpu');
+  const hasMem = metrics.includes('memory_usage') || causeLower.includes('mem');
+  const hasDisk = metrics.includes('disk_usage') || causeLower.includes('disk');
+
+  const culpritName = culprits[0]?.name || 'stress-ng';
+  const cleanTarget = culpritName.replace(/-cpu$/, '');
+  const killCmd = `sudo pkill -9 ${cleanTarget}`;
+
+  // Extract raw actions if present
+  let rawList: string[] = [];
+  if (analysis?.recommended_actions && analysis.recommended_actions.length > 0) {
+    rawList = analysis.recommended_actions;
+  } else if (incident.recommended_action) {
+    if (/\(\d+\)/.test(incident.recommended_action)) {
+      rawList = incident.recommended_action
+        .split(/\(\d+\)\s*/)
+        .map((s) => s.trim().replace(/\.$/, ''))
+        .filter(Boolean);
+    } else {
+      rawList = [incident.recommended_action];
+    }
+  }
+
+  // Solution 1: Immediate Relief — Process Mitigation
+  let sol1Title = 'Immediate Relief: Terminate Culprit Workload';
+  let sol1Desc = `Instantly terminate runaway or stress-testing processes (${culpritName}) saturating compute and memory cores.`;
+  let sol1Cmd = killCmd;
+
+  // Solution 2: Resource Cleanup & Stabilization
+  let sol2Title = 'Resource Stabilization: Reclaim Host Buffers & Space';
+  let sol2Desc = 'Commit buffer sync and purge temporary storage allocations to restore resource baselines.';
+  let sol2Cmd = hasDisk
+    ? 'rm -f /var/tmp/disk_stress.img /tmp/disk_stress.img 2>/dev/null; sync'
+    : hasMem
+    ? 'sync && free -m'
+    : 'ps -eo pid,comm,%cpu,%mem --sort=-%cpu | head -n 8';
+
+  if (hasDisk) {
+    sol2Title = 'Storage Cleanup: Purge Stress Ballast Files & Sync';
+    sol2Desc = 'Deletes synthetic disk test files (/var/tmp/disk_stress.img) and commits buffer sync to reclaim root EBS storage.';
+  } else if (hasMem) {
+    sol2Title = 'Memory Reclamation: Flush Buffers & Audit RAM';
+    sol2Desc = 'Flushes dirty filesystem pages to disk and reports real-time available physical RAM and swap capacity.';
+  } else {
+    sol2Title = 'Process Audit: Verify Worker Thread Teardown';
+    sol2Desc = 'Inspects top active processes to confirm runaway worker threads have ceased consuming host compute.';
+  }
+
+  // Solution 3: Post-Remediation Verification & Health Triage
+  let sol3Title = 'System Verification: Audit Process Table Baseline';
+  let sol3Desc = 'Confirms operating system process table has returned to nominal idle compute and memory baselines.';
+  let sol3Cmd = hasDisk || hasMem
+    ? 'ps -eo pid,comm,%cpu,%mem --sort=-%cpu | head -n 6'
+    : 'journalctl -p warning..err -n 30 --no-pager';
+
+  if (!hasDisk && !hasMem) {
+    sol3Title = 'Kernel Triage: Audit Journal for Pressure Warnings';
+    sol3Desc = 'Audits systemd journal logs for hardware throttling, kernel panics, or memory pressure alarms.';
+  }
+
+  const cleanDesc = (raw: string, fallback: string): string => {
+    let text = raw.replace(/`[^`]+`/g, '').trim();
+    text = text.replace(/\s+and\s*$/i, '').replace(/[:\s,]+$/, '').trim();
+    if (text.length < 8) return fallback;
+    return text.endsWith('.') ? text : `${text}.`;
+  };
+
+  // If rawList items contain commands in backticks, enrich the solutions
+  if (rawList.length >= 1 && rawList[0]) {
+    const m = rawList[0].match(/`([^`]+)`/);
+    if (m) sol1Cmd = m[1];
+    sol1Desc = cleanDesc(rawList[0], sol1Desc);
+  }
+  if (rawList.length >= 2 && rawList[1]) {
+    const m = rawList[1].match(/`([^`]+)`/);
+    if (m) sol2Cmd = m[1];
+    sol2Desc = cleanDesc(rawList[1], sol2Desc);
+  }
+  if (rawList.length >= 3 && rawList[2]) {
+    const m = rawList[2].match(/`([^`]+)`/);
+    if (m) sol3Cmd = m[1];
+    sol3Desc = cleanDesc(rawList[2], sol3Desc);
+  }
+
+  return [
+    {
+      stepNum: 1,
+      badge: 'Step 1 • Immediate Relief',
+      badgeColor: '#ef4444',
+      title: sol1Title,
+      description: sol1Desc,
+      command: sol1Cmd,
+    },
+    {
+      stepNum: 2,
+      badge: 'Step 2 • Resource Cleanup',
+      badgeColor: '#f59e0b',
+      title: sol2Title,
+      description: sol2Desc,
+      command: sol2Cmd,
+    },
+    {
+      stepNum: 3,
+      badge: 'Step 3 • System Verification',
+      badgeColor: '#10b981',
+      title: sol3Title,
+      description: sol3Desc,
+      command: sol3Cmd,
+    },
+  ];
+}
 
 export const IncidentDetail: React.FC = () => {
   const { incidentId } = useParams<{ incidentId: string }>();
@@ -75,11 +207,65 @@ export const IncidentDetail: React.FC = () => {
   const [showFullReasoning, setShowFullReasoning] = useState(false);
   const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
   const [statusUpdating, setStatusUpdating] = useState(false);
+  const [executingCmd, setExecutingCmd] = useState<string | null>(null);
+  const [cmdResults, setCmdResults] = useState<
+    Record<
+      string,
+      {
+        success: boolean;
+        stdout: string;
+        stderr: string;
+        exit_code: number;
+        duration_ms: number;
+        error?: string | null;
+        message: string;
+        command: string;
+      }
+    >
+  >({});
 
   const handleCopy = (text: string, label: string = 'Copied!') => {
     navigator.clipboard.writeText(text);
     setCopyFeedback(label);
     setTimeout(() => setCopyFeedback(null), 2000);
+  };
+
+  const handleExecuteRemediation = async (cmd: string) => {
+    if (!incident || executingCmd) return;
+    setExecutingCmd(cmd);
+    try {
+      const res = await incidentsApi.remediate(incident.id, cmd);
+      setCmdResults((prev) => ({
+        ...prev,
+        [cmd]: res,
+      }));
+      // Auto-refresh incident status and metric progression after execution
+      await refresh();
+    } catch (err: any) {
+      setCmdResults((prev) => ({
+        ...prev,
+        [cmd]: {
+          success: false,
+          stdout: '',
+          stderr: '',
+          exit_code: 1,
+          duration_ms: 0,
+          error: err?.response?.data?.detail || err?.message || 'Execution failed on EC2',
+          message: 'Remediation command failed',
+          command: cmd,
+        },
+      }));
+    } finally {
+      setExecutingCmd(null);
+    }
+  };
+
+  const handleDismissResult = (cmd: string) => {
+    setCmdResults((prev) => {
+      const next = { ...prev };
+      delete next[cmd];
+      return next;
+    });
   };
 
   const handleStatusChange = async (newStatus: string) => {
@@ -213,17 +399,8 @@ export const IncidentDetail: React.FC = () => {
     };
   });
 
-  // Recommended actions list
-  const actionsList =
-    analysis?.recommended_actions && analysis.recommended_actions.length > 0
-      ? analysis.recommended_actions
-      : incident.recommended_action
-      ? [incident.recommended_action]
-      : [
-          'Inspect and terminate unauthorized high-compute processes consuming CPU/RAM resources.',
-          'Review top running processes via ps command to identify runaway workloads.',
-          'Examine system journal for kernel memory pressure or OOM notifications.',
-        ];
+  // Generate 2 to 3 distinct solution recommendations with actionable shell commands
+  const solutions = getRemediationSolutions(incident, analysis, detectedCulprits);
 
   // Concise summary for sidebar strictly reflecting real incident data
   const conciseSummary =
@@ -395,35 +572,136 @@ export const IncidentDetail: React.FC = () => {
                 )}
               </section>
 
-              {/* Actionable Remediation Checklist */}
+              {/* Actionable Remediation Checklist (2 to 3 Solutions with 1-Click UI Execution) */}
               <section className="detail-section" style={{ marginBottom: '16px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                  <h3 className="section-title" style={{ fontSize: '15px', margin: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <CheckCircle2 size={16} color="#10b981" />
-                    <span>Remediation Commands</span>
-                  </h3>
-                  <span style={{ fontSize: '12px', color: 'var(--color-text-muted)' }}>Execute to restore stability</span>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '8px' }}>
+                  <div>
+                    <h3 className="section-title" style={{ fontSize: '15px', margin: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <CheckCircle2 size={16} color="#10b981" />
+                      <span>Recommended Solutions & Remediation</span>
+                    </h3>
+                    <span style={{ fontSize: '12px', color: 'var(--color-text-muted)' }}>
+                      2 to 3 operational strategies with 1-click remote SSH execution on EC2
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span style={{ fontSize: '11px', background: 'rgba(16, 185, 129, 0.1)', color: '#10b981', padding: '3px 8px', borderRadius: '4px', border: '1px solid rgba(16, 185, 129, 0.25)', fontWeight: 600 }}>
+                      ⚡ 1-Click Remote Remediation
+                    </span>
+                  </div>
                 </div>
 
                 <div className="action-checklist">
-                  {actionsList.map((actionText, idx) => {
-                    const snippet = REMEDIATION_COMMANDS[idx];
+                  {solutions.map((sol) => {
+                    const result = cmdResults[sol.command];
+                    const isRunning = executingCmd === sol.command;
+
                     return (
-                      <div key={idx} className="action-step-card">
-                        <div className="action-step-num">{idx + 1}</div>
+                      <div key={sol.stepNum} className="action-step-card">
+                        <div className="action-step-num" style={{ background: sol.badgeColor }}>
+                          {sol.stepNum}
+                        </div>
                         <div className="action-step-body">
-                          <p className="action-step-text">{actionText}</p>
-                          {snippet && (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px', flexWrap: 'wrap' }}>
+                            <span
+                              className="remediation-step-badge"
+                              style={{
+                                color: sol.badgeColor,
+                                borderColor: `${sol.badgeColor}40`,
+                                background: `${sol.badgeColor}15`,
+                              }}
+                            >
+                              {sol.badge}
+                            </span>
+                            <strong className="remediation-step-title">{sol.title}</strong>
+                          </div>
+
+                          <p className="action-step-text" style={{ marginBottom: '10px' }}>
+                            {sol.description}
+                          </p>
+
+                          {sol.command && (
                             <div className="code-snippet-box">
-                              <span>$ {snippet}</span>
-                              <button
-                                className="copy-btn"
-                                onClick={() => handleCopy(snippet, `Command #${idx + 1} copied!`)}
-                                title="Copy command to clipboard"
-                              >
-                                <Copy size={12} />
-                                <span>Copy</span>
-                              </button>
+                              <div className="code-snippet-cmd">
+                                <span className="code-snippet-prompt">$</span>
+                                <span className="code-snippet-text">{sol.command}</span>
+                              </div>
+                              <div className="code-snippet-actions">
+                                <button
+                                  className="copy-btn"
+                                  onClick={() => handleCopy(sol.command, `Solution #${sol.stepNum} command copied!`)}
+                                  title="Copy command to clipboard"
+                                >
+                                  <Copy size={12} />
+                                  <span>Copy</span>
+                                </button>
+                                <button
+                                  className="execute-btn"
+                                  onClick={() => handleExecuteRemediation(sol.command)}
+                                  disabled={isRunning || executingCmd !== null}
+                                  title="Execute directly on remote AWS EC2 instance over secure SSH"
+                                >
+                                  {isRunning ? (
+                                    <>
+                                      <Loader2 size={12} className="spinning" />
+                                      <span>Executing...</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Zap size={12} />
+                                      <span>Execute on EC2</span>
+                                    </>
+                                  )}
+                                </button>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Inline Execution Output Terminal */}
+                          {result && (
+                            <div className={`remediation-output-terminal ${result.success ? 'terminal-success' : 'terminal-failed'}`}>
+                              <div className="terminal-header">
+                                <div className="terminal-header-info">
+                                  <span className={`terminal-status-dot ${result.exit_code === 0 ? 'dot-success' : 'dot-failed'}`} />
+                                  <span className="terminal-title">
+                                    {result.exit_code === 0 ? 'Remediation Executed Successfully' : 'Remediation Execution Error'}
+                                  </span>
+                                  <span className="terminal-meta">
+                                    Exit Code: {result.exit_code} • {result.duration_ms}ms • AWS EC2 ({incident.hostname})
+                                  </span>
+                                </div>
+                                <button
+                                  className="terminal-close-btn"
+                                  onClick={() => handleDismissResult(sol.command)}
+                                  title="Dismiss output"
+                                >
+                                  <X size={12} />
+                                </button>
+                              </div>
+                              <div className="terminal-body">
+                                <div className="terminal-cmd-line">
+                                  <span className="terminal-prompt">$</span>
+                                  <span className="terminal-cmd-text">{sol.command}</span>
+                                </div>
+                                {result.stdout && (
+                                  <pre className="terminal-output-text stdout">{result.stdout.trim()}</pre>
+                                )}
+                                {result.stderr && (
+                                  <pre className="terminal-output-text stderr">{result.stderr.trim()}</pre>
+                                )}
+                                {result.exit_code === 0 && !result.stdout && (
+                                  <div className="terminal-clean-msg">
+                                    <CheckCircle2 size={13} color="#10b981" />
+                                    <span>Workload process terminated cleanly. Telemetry snapshot triggered.</span>
+                                  </div>
+                                )}
+                                {result.error && (
+                                  <div className="terminal-error-msg">
+                                    <AlertTriangle size={13} color="#ef4444" />
+                                    <span>{result.error}</span>
+                                  </div>
+                                )}
+                              </div>
                             </div>
                           )}
                         </div>

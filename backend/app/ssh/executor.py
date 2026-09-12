@@ -71,9 +71,78 @@ def is_command_allowed(command: str) -> Tuple[bool, str]:
         if token in cmd:
             return False, f"Command contains forbidden token: '{token}'."
 
-    # Check allowlist
+    # Check allowlist prefixes
     for prefix in ALLOWED_COMMAND_PREFIXES:
         if cmd.startswith(prefix):
             return True, "Command allowed."
 
     return False, f"Command '{cmd[:40]}' is not in the monitoring allowlist."
+
+
+ALLOWED_REMEDIATION_PREFIXES: tuple[str, ...] = (
+    "pkill",
+    "killall",
+    "kill",
+    "rm -f /var/tmp/",
+    "rm -f /tmp/",
+    "sync",
+    "ps -eo",
+    "ps -e",
+    "free -m",
+    "free -h",
+    "free",
+    "df -h",
+    "df",
+    "du -sh",
+    "du -h",
+    "journalctl",
+    "uptime",
+)
+
+# Forbidden dangerous tokens for remediation commands
+FORBIDDEN_REMEDIATION_TOKENS: tuple[str, ...] = (
+    "rm -rf /",
+    "rm -rf *",
+    "shutdown",
+    "reboot",
+    "poweroff",
+    "init ",
+    "mkfs",
+    "dd ",
+    "curl",
+    "wget",
+    "nc ",
+    "eval",
+    "exec",
+    "> /dev/sd",
+    "> /dev/nvme",
+    "> /dev/vd",
+    "> /dev/xvd",
+    ":(){",
+)
+
+
+def is_remediation_command_allowed(command: str) -> Tuple[bool, str]:
+    """
+    Validate that an operational remediation command is safe to execute on the EC2 host.
+    Permits process termination, cache flushing, disk cleanup, and diagnostics.
+    """
+    cmd = command.strip()
+    if not cmd:
+        return False, "Remediation command cannot be empty."
+
+    # Strip optional sudo prefix for validation
+    normalized = cmd[5:].strip() if cmd.startswith("sudo ") else cmd
+
+    # Check for dangerous tokens
+    for token in FORBIDDEN_REMEDIATION_TOKENS:
+        if token in normalized:
+            return False, f"Remediation command contains forbidden token: '{token}'."
+
+    # Check allowlist prefixes
+    for prefix in ALLOWED_REMEDIATION_PREFIXES:
+        if normalized.startswith(prefix):
+            return True, "Remediation command allowed."
+
+    return False, f"Remediation command '{normalized[:40]}' is not in the approved operational list."
+

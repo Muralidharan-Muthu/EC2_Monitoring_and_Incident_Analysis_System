@@ -11,7 +11,7 @@ import asyncssh
 
 from app.core.config import get_settings
 from app.core.logging import get_logger
-from app.ssh.executor import is_command_allowed
+from app.ssh.executor import is_command_allowed, is_remediation_command_allowed
 from app.ssh.models import CommandResult, SSHConnectionStatus
 
 logger = get_logger(__name__)
@@ -128,6 +128,71 @@ class EC2SSHClient:
         try:
             async with self.session() as s:
                 return await s.execute(command)
+        except Exception as exc:
+            duration = (time.perf_counter() - start) * 1000.0
+            return CommandResult(
+                command=command,
+                success=False,
+                exit_code=-1,
+                duration_ms=round(duration, 2),
+                error=str(exc),
+            )
+
+    async def execute_remediation(self, command: str) -> CommandResult:
+        """Execute validated incident remediation command on remote EC2 host."""
+        allowed, reason = is_remediation_command_allowed(command)
+        if not allowed:
+            return CommandResult(
+                command=command,
+                success=False,
+                exit_code=-1,
+                error=f"Remediation security policy rejection: {reason}",
+            )
+
+        start = time.perf_counter()
+        try:
+            async with self.session() as s:
+                result = await asyncio.wait_for(
+                    s.connection.run(command, check=False),
+                    timeout=20.0,
+                )
+                duration = (time.perf_counter() - start) * 1000.0
+                stdout = result.stdout or ""
+                stderr = result.stderr or ""
+
+                exit_status = result.exit_status
+                exit_signal = getattr(result, "exit_signal", None)
+
+                # Check for process signal termination (e.g. pkill -f matching its own subshell)
+                is_kill_cmd = any(k in command for k in ("pkill", "killall", "kill"))
+                if exit_status is None or exit_status == -1:
+                    if is_kill_cmd and exit_signal:
+                        exit_status = 0
+                        if not stdout:
+                            stdout = "Termination signal sent to workload processes."
+                    else:
+                        exit_status = -1
+
+                # In Linux pkill/killall: exit code 1 means "no processes matched" (already terminated/inactive)
+                if is_kill_cmd and exit_status == 1:
+                    exit_status = 0
+                    if not stdout:
+                        stdout = "No matching active stress processes found (workload already terminated)."
+
+                is_success = (exit_status == 0)
+                error_msg = None
+                if not is_success:
+                    error_msg = stderr.strip() or f"Process exited with status {exit_status}"
+
+                return CommandResult(
+                    command=command,
+                    stdout=stdout,
+                    stderr=stderr,
+                    exit_code=exit_status,
+                    success=is_success,
+                    duration_ms=round(duration, 2),
+                    error=error_msg,
+                )
         except Exception as exc:
             duration = (time.perf_counter() - start) * 1000.0
             return CommandResult(
